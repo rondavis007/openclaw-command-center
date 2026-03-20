@@ -14,7 +14,6 @@ const { formatBytes, formatTimeAgo } = require("./utils");
  * @param {function} deps.getSystemVitals - function from vitals module
  * @param {function} deps.getCronJobs - function from cron module
  * @param {function} deps.loadOperators - function from operators module
- * @param {function} deps.calculateOperatorStats - function from operators module
  * @param {function} deps.getLlmUsage - function from llm-usage module
  * @param {function} deps.getDailyTokenUsage - function from tokens module
  * @param {function} deps.getTokenStats - function from tokens module
@@ -32,7 +31,6 @@ function createStateModule(deps) {
     getSystemVitals,
     getCronJobs,
     loadOperators,
-    calculateOperatorStats,
     getLlmUsage,
     getDailyTokenUsage,
     getTokenStats,
@@ -416,8 +414,26 @@ function createStateModule(deps) {
     }
     try {
       const operatorData = loadOperators();
-      // Use shared function for calculating operator stats (single source of truth)
-      operators = calculateOperatorStats(operatorData, allSessions);
+      // Add stats to each operator (same as /api/operators endpoint)
+      const operatorsWithStats = operatorData.operators.map((op) => {
+        const userSessions = allSessions.filter(
+          (s) => s.originator?.userId === op.id || s.originator?.userId === op.metadata?.slackId,
+        );
+        return {
+          ...op,
+          stats: {
+            activeSessions: userSessions.filter((s) => s.active).length,
+            totalSessions: userSessions.length,
+            lastSeen:
+              userSessions.length > 0
+                ? new Date(
+                    Date.now() - Math.min(...userSessions.map((s) => s.minutesAgo)) * 60000,
+                  ).toISOString()
+                : op.lastSeen,
+          },
+        };
+      });
+      operators = { ...operatorData, operators: operatorsWithStats };
     } catch (e) {
       console.error("[State] operators:", e.message);
     }

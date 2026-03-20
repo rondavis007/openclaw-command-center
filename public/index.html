@@ -2810,8 +2810,8 @@
       function renderLlmUsage(data) {
         // Wrap in try-catch to prevent crashes from blocking other renders
         try {
-          // Handle auth errors - show clear error state instead of 0%
-          if (data?.errorType === "auth" || data?.claude?.session?.error) {
+          // Handle auth errors separately from rate limits.
+          if (data?.errorType === "auth") {
             const errorMsg = "⚠️ Auth Error";
             const clickableError =
               '<a href="#" onclick="openAuthModal(); return false;" style="color:#f59e0b; text-decoration: underline; cursor: pointer;">Auth Error - Click to Fix</a>';
@@ -2853,23 +2853,25 @@
               compactWeekBar.className = "quota-bar-fill gray";
             }
 
-            // Compact cards - Codex (show 0% but with gray bars since we don't track Codex via API)
+            // Compact cards - Codex (render independently even when Claude auth fails)
             const codex5hEl = document.getElementById("codex-5h-pct");
             const codex5hBar = document.getElementById("codex-5h-bar");
             const codexDayEl = document.getElementById("codex-day-pct");
             const codexDayBar = document.getElementById("codex-day-bar");
-            if (codex5hEl) codex5hEl.textContent = "0%";
+            const codex5h = data?.codex?.usage5hPct || 0;
+            const codexDay = data?.codex?.usageDayPct || 0;
+            if (codex5hEl) codex5hEl.textContent = `${codex5h}%`;
             if (codex5hBar) {
-              codex5hBar.style.width = "0%";
-              codex5hBar.className = "quota-bar-fill low";
+              codex5hBar.style.width = `${codex5h}%`;
+              codex5hBar.className = "quota-bar-fill " + (codex5h < 50 ? "low" : codex5h < 80 ? "medium" : "high");
             }
-            if (codexDayEl) codexDayEl.textContent = "0%";
+            if (codexDayEl) codexDayEl.textContent = `${codexDay}%`;
             if (codexDayBar) {
-              codexDayBar.style.width = "0%";
-              codexDayBar.className = "quota-bar-fill low";
+              codexDayBar.style.width = `${codexDay}%`;
+              codexDayBar.className = "quota-bar-fill " + (codexDay < 50 ? "low" : codexDay < 80 ? "medium" : "high");
             }
-            $set("codex-tasks", "textContent", "0 total");
-            $set("llm-sync-time", "textContent", errorMsg);
+            $set("codex-tasks", "textContent", (data?.routing?.total || 0) + " total");
+            $set("llm-sync-time", "textContent", errorMsg + (codex5h || codexDay ? " · Codex live" : ""));
 
             // Still render routing data if available
             if (data.routing) {
@@ -2887,6 +2889,40 @@
               $set("claude-task-count", "textContent", ct);
               $set("codex-task-count", "textContent", cx);
             }
+            return;
+          }
+
+          if (data?.errorType === "rate_limit") {
+            $set("claude-session-pct", "innerHTML", '<span style="color:#f59e0b">N/A</span>');
+            $set("claude-session-bar", "style.width", "0%");
+            $set("claude-session-bar", "className", "vital-bar-fill gray");
+            $set("claude-session-remaining", "textContent", "N/A");
+            $set("claude-session-reset", "textContent", "Rate limited");
+            $set("claude-weekly-pct", "innerHTML", '<span style="color:#f59e0b">N/A</span>');
+            $set("claude-weekly-bar", "style.width", "0%");
+            $set("claude-weekly-bar", "className", "vital-bar-fill gray");
+            $set("claude-weekly-remaining", "textContent", "N/A");
+            $set("claude-weekly-reset", "textContent", "Rate limited");
+            $set("sonnet-weekly-pct", "innerHTML", '<span style="color:#f59e0b">N/A</span>');
+            $set("sonnet-weekly-bar", "style.width", "0%");
+            $set("sonnet-weekly-bar", "className", "vital-bar-fill gray");
+            $set("sonnet-weekly-remaining", "textContent", "N/A");
+            $set("sonnet-weekly-reset", "textContent", "Rate limited");
+            const compactSessionEl = document.getElementById("claude-compact-session-pct");
+            const compactSessionBar = document.getElementById("claude-compact-session-bar");
+            if (compactSessionEl) compactSessionEl.textContent = "N/A";
+            if (compactSessionBar) {
+              compactSessionBar.style.width = "0%";
+              compactSessionBar.className = "quota-bar-fill gray";
+            }
+            const compactWeekEl = document.getElementById("claude-compact-week-pct");
+            const compactWeekBar = document.getElementById("claude-compact-week-bar");
+            if (compactWeekEl) compactWeekEl.textContent = "N/A";
+            if (compactWeekBar) {
+              compactWeekBar.style.width = "0%";
+              compactWeekBar.className = "quota-bar-fill gray";
+            }
+            $set("llm-sync-time", "textContent", data?.error || "Rate limited");
             return;
           }
 
@@ -2993,6 +3029,24 @@
           if (sonnetBar) {
             sonnetBar.className =
               "vital-bar-fill " + (sonnetUsed > 80 ? "red" : sonnetUsed > 50 ? "yellow" : "green");
+          }
+
+          // Codex quota cards - render independently from Claude state
+          const codex5hUsed = data.codex?.usage5hPct || 0;
+          const codexDayUsed = data.codex?.usageDayPct || 0;
+          const codex5hEl = document.getElementById("codex-5h-pct");
+          const codexDayEl = document.getElementById("codex-day-pct");
+          const codex5hBar = document.getElementById("codex-5h-bar");
+          const codexDayBar = document.getElementById("codex-day-bar");
+          if (codex5hEl) codex5hEl.textContent = `${codex5hUsed}%`;
+          if (codexDayEl) codexDayEl.textContent = `${codexDayUsed}%`;
+          if (codex5hBar) {
+            codex5hBar.style.width = `${codex5hUsed}%`;
+            codex5hBar.className = `quota-bar-fill ${codex5hUsed < 50 ? "low" : codex5hUsed < 80 ? "medium" : "high"}`;
+          }
+          if (codexDayBar) {
+            codexDayBar.style.width = `${codexDayUsed}%`;
+            codexDayBar.className = `quota-bar-fill ${codexDayUsed < 50 ? "low" : codexDayUsed < 80 ? "medium" : "high"}`;
           }
 
           // Task Routing
