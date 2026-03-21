@@ -699,9 +699,9 @@ main {
 .card-title {
   font-size: 0.9rem;
   font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 .card-subtitle {
   font-size: 0.75rem;
