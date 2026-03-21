@@ -2216,22 +2216,23 @@
                 const status = s.active ? "live" : s.recentlyActive ? "recent" : "idle";
 
                 // Generate topic pills (filtered by privacy settings)
-                let topicHtml = "";
+                let topicPills = "";
                 if (s.topic) {
                   const topics = s.topic
                     .split(", ")
                     .map((t) => t.trim())
                     .filter((t) => t && !isTopicHidden(t));
                   if (topics.length > 0) {
-                    const pills = topics
+                    topicPills = topics
                       .map((t) => {
                         const className = t.toLowerCase().replace(/[^a-z]/g, "");
                         return `<span class="topic-pill ${className}">${escapeHtml(t)}</span>`;
                       })
                       .join("");
-                    topicHtml = `<div class="card-topics">${pills}</div>`;
                   }
                 }
+                // Always build one pills row containing topics + status badges
+                const topicHtml = `<div class="card-topics">${topicPills}${activityHtml}<span class="card-badge ${badgeClass}">${badgeText}</span></div>`;
                 const previewHtml = s.preview
                   ? `<div class="card-preview">${escapeHtml(s.preview)}</div>`
                   : "";
@@ -2320,11 +2321,7 @@
                             </div>
                             <button class="hide-btn" onclick="event.stopPropagation(); quickHideSession('${escapeHtml(s.sessionKey).replace(/'/g, "\\'")}', '${escapeHtml(s.label).replace(/'/g, "\\'")}');" title="Hide session">👁️</button>
                         </div>
-                        <div class="card-pills-row">
-                            ${topicHtml}
-                            ${activityHtml}
-                            <span class="card-badge ${badgeClass}">${badgeText}</span>
-                        </div>
+                        ${topicHtml}
                         ${previewHtml}
                         <div class="card-stats">
                             ${cerebroTagHtml}
