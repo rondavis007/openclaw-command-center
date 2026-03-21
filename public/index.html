@@ -2318,8 +2318,6 @@
                                 <div class="card-subtitle">${s.kind} • ${model}</div>
                                 ${originatorHtml}
                             </div>
-                            ${activityHtml}
-                            <span class="card-badge ${badgeClass}">${badgeText}</span>
                             <button class="hide-btn" onclick="event.stopPropagation(); quickHideSession('${escapeHtml(s.sessionKey).replace(/'/g, "\\'")}', '${escapeHtml(s.label).replace(/'/g, "\\'")}');" title="Hide session">👁️</button>
                         </div>
                         ${topicHtml}
@@ -2330,6 +2328,10 @@
                                 <span>🎫</span>
                                 <span class="card-stat-value">${(s.tokens / 1000).toFixed(1)}k</span>
                             </div>
+                        </div>
+                        <div class="card-status-row">
+                            ${activityHtml}
+                            <span class="card-badge ${badgeClass}">${badgeText}</span>
                         </div>
                         ${metricsHtml}
                     </div>

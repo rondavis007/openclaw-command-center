@@ -348,6 +348,14 @@ header {
   gap: 4px;
 }
 
+.card-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
 /* Stats Bar */
 .stats-bar {
   display: flex;
