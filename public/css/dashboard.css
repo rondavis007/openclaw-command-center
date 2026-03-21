@@ -850,24 +850,27 @@ main {
   color: var(--yellow);
 }
 
-/* Model badge pill (matches Clawbaby Gallery style) */
+/* Model badge pill — exact same sizing as .card-badge (Live/Idle pill) */
 .model-badge {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 2px 7px 2px 4px;
-  font-size: 11px;
+  border-radius: 12px;
+  padding: 3px 8px;
+  min-height: 24px;
+  font-size: 0.7rem;
+  font-weight: 500;
   color: var(--text-muted);
   vertical-align: middle;
-  line-height: 1.2;
+  line-height: 1;
+  box-sizing: border-box;
 }
 .model-badge .model-name { line-height: 1; }
 .provider-logo {
-  width: 13px;
-  height: 13px;
+  width: 12px;
+  height: 12px;
   flex-shrink: 0;
 }
 .model-badge.provider-anthropic { border-color: #cf7b4855; color: #cf9a70; }
@@ -875,7 +878,7 @@ main {
 .model-badge.provider-xai       { border-color: #50505055; color: #d0d0d0; }
 .model-badge.provider-google    { border-color: #4285f455; color: #7baaf7; }
 
-/* card-stats row: token pill left, spacer, kind right-aligned */
+/* card-stats row: model pill + token pill left, kind right-aligned */
 .card-stats {
   display: flex;
   align-items: center;
@@ -883,10 +886,15 @@ main {
   flex-wrap: wrap;
   margin-top: 4px;
 }
+.card-stat {
+  font-size: 0.7rem;
+  font-weight: 500;
+}
 .card-stats-kind {
   margin-left: auto;
   font-size: 0.7rem;
-  opacity: 0.5;
+  font-weight: 500;
+  opacity: 0.45;
   white-space: nowrap;
 }
 
