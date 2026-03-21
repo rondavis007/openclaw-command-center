@@ -685,6 +685,12 @@ main {
 .card-icon.main {
   background: rgba(163, 113, 247, 0.15);
 }
+.card-icon.discord {
+  background: rgba(88, 101, 242, 0.15);
+}
+.card-icon.cron {
+  background: rgba(240, 180, 0, 0.15);
+}
 
 .card-title-area {
   flex: 1;
