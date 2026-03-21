@@ -1712,6 +1712,32 @@
         return div.innerHTML;
       }
 
+      // Model badge helpers (matches Clawbaby Gallery style)
+      const CC_PROVIDER_LOGOS = {
+        anthropic: `<svg class="provider-logo" viewBox="0 0 24 24" fill="currentColor" title="Anthropic"><path d="M13.827 3.52h3.603L24 20h-3.603l-6.57-16.48zm-3.654 0H6.57L0 20h3.603l1.384-3.483h6.846l1.384 3.483h3.603L10.173 3.52zm-3.87 10.62 2.138-5.362 2.137 5.362H6.303z"/></svg>`,
+        openai: `<svg class="provider-logo" viewBox="0 0 24 24" fill="currentColor" title="OpenAI"><path d="M22.28 9.84a5.83 5.83 0 0 0-.5-4.79 5.9 5.9 0 0 0-6.35-2.83 5.83 5.83 0 0 0-4.39-1.96 5.9 5.9 0 0 0-5.62 4.08 5.83 5.83 0 0 0-3.9 2.83 5.9 5.9 0 0 0 .73 6.91 5.83 5.83 0 0 0 .5 4.79 5.9 5.9 0 0 0 6.35 2.83 5.83 5.83 0 0 0 4.39 1.96 5.9 5.9 0 0 0 5.63-4.09 5.83 5.83 0 0 0 3.89-2.83 5.9 5.9 0 0 0-.73-6.91zM12 19.27a4.37 4.37 0 0 1-2.81-1.02l.14-.08 4.67-2.7a.77.77 0 0 0 .39-.67V8.2l1.97 1.14a.07.07 0 0 1 .04.05v5.46A4.4 4.4 0 0 1 12 19.27zM4.1 17.84a4.37 4.37 0 0 1-.52-2.96l.14.08 4.67 2.7a.77.77 0 0 0 .77 0l5.7-3.29v2.28a.07.07 0 0 1-.03.06L9.9 19.44a4.4 4.4 0 0 1-5.8-1.6zm-1.14-9.8a4.37 4.37 0 0 1 2.29-1.92v5.55a.77.77 0 0 0 .39.67l5.7 3.29-1.97 1.14a.07.07 0 0 1-.07 0L4.36 14a4.4 4.4 0 0 1-1.4-5.96z"/></svg>`,
+        xai: `<svg class="provider-logo" viewBox="0 0 24 24" fill="currentColor" title="xAI"><path d="M3 3l7.5 9L3 21h3l6-7.2 6 7.2h3l-7.5-9L21 3h-3l-5.5 6.6L7 3H3z"/></svg>`,
+        google: `<svg class="provider-logo" viewBox="0 0 24 24" fill="currentColor" title="Google"><path d="M12 11v2.4h3.46c-.14.9-.56 1.65-1.19 2.16l1.92 1.49C17.3 15.8 18 14.02 18 12c0-.5-.04-.98-.12-1.44H12v.44z" fill="#4285F4"/><path d="M5.64 14.28A6.96 6.96 0 0 1 5 12c0-.8.14-1.57.4-2.28L3.5 8.24A11.93 11.93 0 0 0 2 12c0 1.93.46 3.75 1.28 5.36l2.36-3.08z" fill="#FBBC05"/><path d="M12 19.96c2.4 0 4.42-.8 5.9-2.16l-1.92-1.5c-.8.54-1.82.86-3.98.86-3.06 0-5.66-2.07-6.59-4.88L3.1 13.74A9.96 9.96 0 0 0 12 19.96z" fill="#34A853"/><path d="M5.41 9.72C6.34 6.91 8.94 4.84 12 4.84c1.69 0 3.2.58 4.4 1.72l1.97-1.97A9.95 9.95 0 0 0 12 2.04 9.96 9.96 0 0 0 3.1 8.26l2.31 1.46z" fill="#EA4335"/></svg>`,
+      };
+
+      function ccProviderFromModel(model) {
+        if (!model) return null;
+        const m = model.toLowerCase();
+        if (m.includes('claude') || m.includes('anthropic') || m.includes('sonnet') || m.includes('opus') || m.includes('haiku')) return 'anthropic';
+        if (m.includes('gpt') || m.includes('codex') || m.includes('openai') || m.includes('o1') || m.includes('o3')) return 'openai';
+        if (m.includes('grok') || m.includes('xai')) return 'xai';
+        if (m.includes('gemini') || m.includes('google')) return 'google';
+        return null;
+      }
+
+      function modelBadgeHtml(model) {
+        if (!model || model === '-' || model === 'unknown') return `<span style="font-size:0.72em;opacity:0.5">${escapeHtml(model||'-')}</span>`;
+        const provider = ccProviderFromModel(model);
+        const logo = provider ? (CC_PROVIDER_LOGOS[provider] || '') : '';
+        const cls = provider ? ` provider-${provider}` : '';
+        return `<span class="model-badge${cls}">${logo}<span class="model-name">${escapeHtml(model)}</span></span>`;
+      }
+
       // Safe DOM utilities - defensive wrappers that won't crash on missing elements
       function $safe(id) {
         const el = document.getElementById(id);
@@ -2336,13 +2362,12 @@
                         ${previewHtml}
                         <div class="card-stats">
                             ${cerebroTagHtml}
+                            ${modelBadgeHtml(model)}
                             <div class="card-stat ${tokenClass}">
                                 <span>🎫</span>
                                 <span class="card-stat-value">${(s.tokens / 1000).toFixed(1)}k</span>
                             </div>
-                            <div class="card-stat">
-                                <span class="card-stat-value" style="font-size:0.75em;opacity:0.7">${s.kind} · ${model}</span>
-                            </div>
+                            <span class="card-stats-kind">${escapeHtml(s.kind)}</span>
                         </div>
                         ${metricsHtml}
                     </div>

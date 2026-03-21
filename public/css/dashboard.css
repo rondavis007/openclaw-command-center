@@ -850,6 +850,46 @@ main {
   color: var(--yellow);
 }
 
+/* Model badge pill (matches Clawbaby Gallery style) */
+.model-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 7px 2px 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  vertical-align: middle;
+  line-height: 1.2;
+}
+.model-badge .model-name { line-height: 1; }
+.provider-logo {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+.model-badge.provider-anthropic { border-color: #cf7b4855; color: #cf9a70; }
+.model-badge.provider-openai    { border-color: #10a37f55; color: #10a37f; }
+.model-badge.provider-xai       { border-color: #50505055; color: #d0d0d0; }
+.model-badge.provider-google    { border-color: #4285f455; color: #7baaf7; }
+
+/* card-stats row: token pill left, spacer, kind right-aligned */
+.card-stats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.card-stats-kind {
+  margin-left: auto;
+  font-size: 0.7rem;
+  opacity: 0.5;
+  white-space: nowrap;
+}
+
 /* Cerebro topic tag */
 .cerebro-tag {
   display: inline-flex;
