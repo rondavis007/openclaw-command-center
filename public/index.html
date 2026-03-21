@@ -4165,7 +4165,7 @@
       function renderDetail(data) {
         // Update the title with the best available channel name
         const titleEl = document.getElementById("detail-title");
-        const channelName = data.groupChannel || data.channel || "Session Details";
+        const channelName = data.label || data.groupChannel || data.displayName || "Session Details";
         titleEl.textContent = channelName;
 
         // Build cost display if available

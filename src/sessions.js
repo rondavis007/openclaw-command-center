@@ -510,25 +510,15 @@ function createSessionsModule(deps) {
               ? `${Math.round(ageMs / 3600000)} hours ago`
               : `${Math.round(ageMs / 86400000)} days ago`;
 
-      // Determine readable channel name
-      // Priority: groupChannel > displayName > parsed from key > fallback
-      let channelDisplay = "Other";
-      if (sessionInfo.groupChannel) {
-        channelDisplay = sessionInfo.groupChannel;
-      } else if (sessionInfo.displayName) {
-        channelDisplay = sessionInfo.displayName;
-      } else if (sessionKey.includes("slack")) {
-        // Try to parse channel name from key
-        const parts = sessionKey.split(":");
-        const channelIdx = parts.indexOf("channel");
-        if (channelIdx >= 0 && parts[channelIdx + 1]) {
-          const channelId = parts[channelIdx + 1].toLowerCase();
-          channelDisplay = CHANNEL_MAP[channelId] || `#${channelId}`;
-        } else {
-          channelDisplay = "Slack";
-        }
-      } else if (sessionKey.includes("telegram")) {
-        channelDisplay = "Telegram";
+      // Determine readable channel name — use humanSessionLabel if available
+      let channelDisplay =
+        deps.humanSessionLabel?.(sessionKey, sessionInfo?.agentId || "main") ||
+        sessionInfo.groupChannel ||
+        sessionInfo.displayName ||
+        "Session";
+      if (channelDisplay === sessionKey) {
+        // fallback fired but returned raw key — simplify
+        channelDisplay = sessionKey.split(":").slice(2).join(" › ") || "Session";
       }
 
       // Use parsed totals or fallback to session info
@@ -543,9 +533,10 @@ function createSessionsModule(deps) {
 
       return {
         key: sessionKey,
+        label: channelDisplay,
         kind: sessionInfo.kind,
         channel: channelDisplay,
-        groupChannel: sessionInfo.groupChannel || channelDisplay,
+        groupChannel: channelDisplay,
         model: modelDisplay,
         tokens: finalTotalTokens,
         inputTokens: finalInputTokens,
