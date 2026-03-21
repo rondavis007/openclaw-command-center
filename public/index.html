@@ -2930,7 +2930,13 @@
             return;
           }
 
-          if (!data || data.error) {
+          if (
+            !data ||
+            (data.error &&
+              data.source !== "scraped" &&
+              data?.claude?.session?.usedPct == null &&
+              !(data?.codex?.usage5hPct || data?.codex?.usageDayPct))
+          ) {
             $set("llm-sync-time", "textContent", data?.needsSync ? "Needs sync" : "Error");
             return;
           }
