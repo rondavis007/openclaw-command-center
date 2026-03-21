@@ -183,8 +183,7 @@ function getLlmUsage(statePath) {
     refreshLlmUsageAsync();
   }
 
-  // Return cached data if available AND not an error
-  // If cache has error, try file fallback first
+  // Return cached data if available AND not an error.
   if (llmUsageCache.data && llmUsageCache.data.source !== "error") {
     return llmUsageCache.data;
   }
@@ -197,6 +196,18 @@ function getLlmUsage(statePath) {
     anthropicScrapeFile,
     bundledAnthropicScrapeFile,
   );
+
+  // If live data has an Anthropic error but still contains Codex usage, merge them.
+  if (llmUsageCache.data && llmUsageCache.data.source === "error" && scrapedFallback) {
+    return {
+      ...llmUsageCache.data,
+      source: "scraped",
+      claude: scrapedFallback.claude,
+      scrape: scrapedFallback.scrape || null,
+      fetch: scrapedFallback.fetch || null,
+    };
+  }
+
   if (scrapedFallback) {
     return scrapedFallback;
   }
@@ -359,6 +370,14 @@ function startLlmUsageRefresh() {
   setInterval(() => refreshLlmUsageAsync(), LLM_CACHE_TTL_MS);
 }
 
+function __setCacheForTests(cache) {
+  llmUsageCache = cache;
+}
+
+function __resetCacheForTests() {
+  llmUsageCache = { data: null, timestamp: 0, refreshing: false };
+}
+
 module.exports = {
   refreshLlmUsageAsync,
   transformLiveUsageData,
@@ -366,4 +385,6 @@ module.exports = {
   getLlmUsage,
   getRoutingStats,
   startLlmUsageRefresh,
+  __setCacheForTests,
+  __resetCacheForTests,
 };

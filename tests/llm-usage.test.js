@@ -3,7 +3,8 @@ const assert = require("node:assert");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { transformLiveUsageData, loadAnthropicScrapeFallback } = require("../src/llm-usage");
+const llmUsage = require("../src/llm-usage");
+const { transformLiveUsageData, loadAnthropicScrapeFallback, getLlmUsage } = llmUsage;
 
 describe("llm-usage module", () => {
   describe("loadAnthropicScrapeFallback()", () => {
@@ -30,6 +31,56 @@ describe("llm-usage module", () => {
       assert.strictEqual(result.claude.session.usedPct, 9);
       assert.strictEqual(result.claude.weekly.resets, "Fri 11:00 AM");
       assert.strictEqual(result.fetch.source, "openclaw-browser");
+    });
+  });
+
+  describe("getLlmUsage()", () => {
+    it("merges scraped Claude fallback with live Codex usage when Anthropic errors", () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "llm-usage-state-"));
+      const scrapedFile = path.join(tmpDir, "anthropic-usage.json");
+      fs.writeFileSync(
+        scrapedFile,
+        JSON.stringify({
+          claude: {
+            session: { usedPct: 9, remainingPct: 91, resetsIn: "29 m" },
+            weekly: { usedPct: 2, remainingPct: 98, resets: "Fri 11:00 AM" },
+            sonnet: { usedPct: 2, remainingPct: 98, resets: "Fri 1:00 PM" },
+            lastSynced: "2026-03-20T22:30:50.549Z",
+          },
+          scrape: { ok: true },
+          fetch: { source: "openclaw-browser" },
+        }),
+      );
+
+      llmUsage.__setCacheForTests({
+        data: {
+          source: "error",
+          error: "HTTP 429: Rate limited. Please try again later.",
+          errorType: "rate_limit",
+          claude: {
+            session: { usedPct: null, remainingPct: null, resetsIn: null, error: "HTTP 429" },
+            weekly: { usedPct: null, remainingPct: null, resets: null, error: "HTTP 429" },
+            sonnet: { usedPct: null, remainingPct: null, resets: null, error: "HTTP 429" },
+            lastSynced: null,
+          },
+          codex: { usage5hPct: 49, usageDayPct: 74, reset5h: "2h", resetDay: "3d" },
+          routing: { total: 0, claudeTasks: 0, codexTasks: 0, claudePct: 0, codexPct: 0, codexFloor: 20 },
+        },
+        timestamp: Date.now(),
+        refreshing: false,
+      });
+
+      const previousEnv = process.env.ANTHROPIC_USAGE_OUTPUT;
+      process.env.ANTHROPIC_USAGE_OUTPUT = scrapedFile;
+      const result = getLlmUsage(tmpDir);
+      if (previousEnv === undefined) delete process.env.ANTHROPIC_USAGE_OUTPUT;
+      else process.env.ANTHROPIC_USAGE_OUTPUT = previousEnv;
+      llmUsage.__resetCacheForTests();
+
+      assert.strictEqual(result.source, "scraped");
+      assert.strictEqual(result.claude.session.usedPct, 9);
+      assert.strictEqual(result.codex.usage5hPct, 49);
+      assert.strictEqual(result.codex.usageDayPct, 74);
     });
   });
 
