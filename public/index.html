@@ -375,15 +375,17 @@
               <div class="quota-bar">
                 <div class="quota-bar-fill low" id="codex-5h-bar" style="width: 0%"></div>
               </div>
+              <div style="font-size:0.72em;opacity:0.6;margin-top:3px">resets <span id="codex-5h-reset">-</span></div>
             </div>
             <div style="margin-top: 8px">
               <div class="quota-stats">
-                <span>Daily Usage</span>
+                <span>Weekly Usage</span>
                 <span><span class="quota-value" id="codex-day-pct">0%</span> used</span>
               </div>
               <div class="quota-bar">
                 <div class="quota-bar-fill low" id="codex-day-bar" style="width: 0%"></div>
               </div>
+              <div style="font-size:0.72em;opacity:0.6;margin-top:3px">resets <span id="codex-day-reset">-</span></div>
             </div>
             <div
               style="
@@ -2878,6 +2880,10 @@
               codex5hBar.style.width = `${codex5h}%`;
               codex5hBar.className = "quota-bar-fill " + (codex5h < 50 ? "low" : codex5h < 80 ? "medium" : "high");
             }
+            const codex5hResetEl = document.getElementById("codex-5h-reset");
+            const codexDayResetEl = document.getElementById("codex-day-reset");
+            if (codex5hResetEl) codex5hResetEl.textContent = data?.codex?.reset5h || "-";
+            if (codexDayResetEl) codexDayResetEl.textContent = data?.codex?.resetDay || "-";
             if (codexDayEl) codexDayEl.textContent = `${codexDay}%`;
             if (codexDayBar) {
               codexDayBar.style.width = `${codexDay}%`;
@@ -3065,8 +3071,12 @@
           const codexDayEl = document.getElementById("codex-day-pct");
           const codex5hBar = document.getElementById("codex-5h-bar");
           const codexDayBar = document.getElementById("codex-day-bar");
+          const codex5hReset = document.getElementById("codex-5h-reset");
+          const codexDayReset = document.getElementById("codex-day-reset");
           if (codex5hEl) codex5hEl.textContent = `${codex5hUsed}%`;
           if (codexDayEl) codexDayEl.textContent = `${codexDayUsed}%`;
+          if (codex5hReset) codex5hReset.textContent = data.codex?.reset5h || "-";
+          if (codexDayReset) codexDayReset.textContent = data.codex?.resetDay || "-";
           if (codex5hBar) {
             codex5hBar.style.width = `${codex5hUsed}%`;
             codex5hBar.className = `quota-bar-fill ${codex5hUsed < 50 ? "low" : codex5hUsed < 80 ? "medium" : "high"}`;
