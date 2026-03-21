@@ -92,21 +92,37 @@ function refreshLlmUsageAsync() {
 function transformLiveUsageData(usage) {
   const anthropic = usage.providers?.find((p) => p.provider === "anthropic");
   const codexProvider = usage.providers?.find((p) => p.provider === "openai-codex");
+  const session5h = anthropic?.windows?.find((w) => w.label === "5h");
+  const weekAll = anthropic?.windows?.find((w) => w.label === "Week");
+  const sonnetWeek = anthropic?.windows?.find((w) => w.label === "Sonnet");
+  const codex5h = codexProvider?.windows?.find((w) => w.label === "5h");
+  const codexDay = codexProvider?.windows?.find((w) => w.label === "Day" || w.label === "Week");
 
-  // Check for auth errors
+  // Check for auth/rate-limit errors on Anthropic, but preserve Codex data if present.
   if (anthropic?.error) {
     return {
       timestamp: new Date().toISOString(),
       source: "error",
       error: anthropic.error,
-      errorType: anthropic.error.includes("403") ? "auth" : "unknown",
+      errorType: anthropic.error.includes("403")
+        ? "auth"
+        : anthropic.error.includes("429") || anthropic.error.toLowerCase().includes("rate")
+          ? "rate_limit"
+          : "unknown",
       claude: {
         session: { usedPct: null, remainingPct: null, resetsIn: null, error: anthropic.error },
         weekly: { usedPct: null, remainingPct: null, resets: null, error: anthropic.error },
         sonnet: { usedPct: null, remainingPct: null, resets: null, error: anthropic.error },
         lastSynced: null,
       },
-      codex: { sessionsToday: 0, tasksToday: 0, usage5hPct: 0, usageDayPct: 0 },
+      codex: {
+        sessionsToday: 0,
+        tasksToday: 0,
+        usage5hPct: Math.round(codex5h?.usedPercent || 0),
+        usageDayPct: Math.round(codexDay?.usedPercent || 0),
+        reset5h: formatReset(codex5h?.resetAt),
+        resetDay: formatReset(codexDay?.resetAt),
+      },
       routing: {
         total: 0,
         claudeTasks: 0,
@@ -118,20 +134,14 @@ function transformLiveUsageData(usage) {
     };
   }
 
-  const session5h = anthropic?.windows?.find((w) => w.label === "5h");
-  const weekAll = anthropic?.windows?.find((w) => w.label === "Week");
-  const sonnetWeek = anthropic?.windows?.find((w) => w.label === "Sonnet");
-  const codex5h = codexProvider?.windows?.find((w) => w.label === "5h");
-  const codexDay = codexProvider?.windows?.find((w) => w.label === "Day");
-
-  const formatReset = (resetAt) => {
+  function formatReset(resetAt) {
     if (!resetAt) return "?";
     const diff = resetAt - Date.now();
     if (diff < 0) return "now";
     if (diff < 3600000) return Math.round(diff / 60000) + "m";
     if (diff < 86400000) return Math.round(diff / 3600000) + "h";
     return Math.round(diff / 86400000) + "d";
-  };
+  }
 
   return {
     timestamp: new Date().toISOString(),

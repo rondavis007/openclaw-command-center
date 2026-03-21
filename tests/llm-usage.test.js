@@ -56,9 +56,18 @@ describe("llm-usage module", () => {
       assert.strictEqual(result.claude.sonnet.usedPct, 5);
     });
 
-    it("handles auth error from provider", () => {
+    it("handles auth error from provider while preserving codex data", () => {
       const usage = {
-        providers: [{ provider: "anthropic", error: "403 Forbidden" }],
+        providers: [
+          { provider: "anthropic", error: "403 Forbidden" },
+          {
+            provider: "openai-codex",
+            windows: [
+              { label: "5h", usedPercent: 49, resetAt: Date.now() + 3600000 },
+              { label: "Week", usedPercent: 74, resetAt: Date.now() + 86400000 * 3 },
+            ],
+          },
+        ],
       };
 
       const result = transformLiveUsageData(usage);
@@ -66,6 +75,8 @@ describe("llm-usage module", () => {
       assert.strictEqual(result.errorType, "auth");
       assert.ok(result.error.includes("403"));
       assert.strictEqual(result.claude.session.usedPct, null);
+      assert.strictEqual(result.codex.usage5hPct, 49);
+      assert.strictEqual(result.codex.usageDayPct, 74);
     });
 
     it("handles missing windows gracefully", () => {
@@ -93,6 +104,25 @@ describe("llm-usage module", () => {
       const result = transformLiveUsageData(usage);
       assert.strictEqual(result.codex.usage5hPct, 30);
       assert.strictEqual(result.codex.usageDayPct, 15);
+    });
+
+    it("accepts Week as the codex weekly window label", () => {
+      const usage = {
+        providers: [
+          { provider: "anthropic", windows: [] },
+          {
+            provider: "openai-codex",
+            windows: [
+              { label: "5h", usedPercent: 49 },
+              { label: "Week", usedPercent: 74 },
+            ],
+          },
+        ],
+      };
+
+      const result = transformLiveUsageData(usage);
+      assert.strictEqual(result.codex.usage5hPct, 49);
+      assert.strictEqual(result.codex.usageDayPct, 74);
     });
 
     it("handles missing providers gracefully", () => {
