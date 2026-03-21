@@ -17,6 +17,10 @@ const DEFAULT_OUTPUT =
 const DEFAULT_PROFILE = process.env.ANTHROPIC_USAGE_BROWSER_PROFILE || "openclaw";
 const DEFAULT_TIMEOUT_MS = Number(process.env.ANTHROPIC_USAGE_TIMEOUT_MS || 30000);
 
+function getStatusPath(outputPath) {
+  return outputPath.replace(/\.json$/i, ".status.json");
+}
+
 function parseArgs(argv) {
   const args = {
     url: DEFAULT_URL,
@@ -44,6 +48,16 @@ function parseArgs(argv) {
 function writeJson(outputPath, data) {
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, JSON.stringify(data, null, 2) + "\n", "utf8");
+}
+
+function writeSuccessCache(outputPath, payload) {
+  const tempPath = `${outputPath}.tmp`;
+  writeJson(tempPath, payload);
+  fs.renameSync(tempPath, outputPath);
+}
+
+function writeStatus(outputPath, payload) {
+  writeJson(getStatusPath(outputPath), payload);
 }
 
 function runOpenClaw(args, timeoutMs) {
@@ -133,7 +147,25 @@ async function main() {
     rawBytes: Buffer.byteLength(rawText, "utf8"),
   };
 
-  writeJson(args.output, payload);
+  if (!payload.scrape.ok) {
+    writeStatus(args.output, payload);
+    console.error(`[anthropic-usage] scrape failed; preserved last good cache at ${args.output}`);
+    process.exitCode = 2;
+    return;
+  }
+
+  writeSuccessCache(args.output, payload);
+  writeStatus(args.output, {
+    timestamp: payload.timestamp,
+    source: payload.source,
+    provider: payload.provider,
+    scrape: payload.scrape,
+    fetch: payload.fetch,
+    cache: {
+      path: args.output,
+      updated: true,
+    },
+  });
 
   const summary = [
     `session=${payload.claude.session.usedPct ?? "?"}%`,
@@ -145,9 +177,6 @@ async function main() {
   ].join(" ");
   console.log(`[anthropic-usage] ${summary}`);
 
-  if (!payload.scrape.ok) {
-    process.exitCode = 2;
-  }
 }
 
 main().catch((error) => {
@@ -166,9 +195,13 @@ main().catch((error) => {
       url: args.url,
       browserProfile: args.browserProfile,
     },
+    cache: {
+      path: args.output,
+      preserved: fs.existsSync(args.output),
+    },
   };
   try {
-    writeJson(args.output, payload);
+    writeStatus(args.output, payload);
   } catch {}
   console.error("[anthropic-usage]", error.message);
   process.exitCode = 1;
