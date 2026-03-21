@@ -82,6 +82,7 @@ const {
   refreshTokenUsageAsync,
 } = require("./tokens");
 const { getLlmUsage, getRoutingStats, startLlmUsageRefresh } = require("./llm-usage");
+const { getDiscordChannelMetadata, resolveUnknownChannels, humanSessionLabel: _humanSessionLabel } = require("./session-labels");
 const { executeAction } = require("./actions");
 const { migrateDataDir } = require("./data");
 const { createStateModule } = require("./state");
@@ -128,6 +129,45 @@ function broadcastSSE(event, data) {
 // INITIALIZE MODULES (wire up dependencies)
 // ============================================================================
 
+// Load OpenClaw gateway config for Discord channel resolution
+let _openclawConfig = null;
+let _discordChannelMeta = {};
+let _cronJobsById = {};
+
+function loadOpenClawConfig() {
+  const openclawDir = getOpenClawDir();
+  for (const name of ["openclaw.json", "config.json"]) {
+    try {
+      const f = path.join(openclawDir, name);
+      if (require("fs").existsSync(f)) {
+        _openclawConfig = JSON.parse(require("fs").readFileSync(f, "utf8"));
+        return;
+      }
+    } catch {}
+  }
+}
+
+async function refreshDiscordMeta(sessionKeys = []) {
+  if (!_openclawConfig) loadOpenClawConfig();
+  if (!_openclawConfig) return;
+  _discordChannelMeta = await getDiscordChannelMetadata(_openclawConfig);
+  if (sessionKeys.length) {
+    await resolveUnknownChannels(sessionKeys, _openclawConfig, _discordChannelMeta);
+  }
+}
+
+function buildCronJobsById(cronJobs = []) {
+  const map = {};
+  for (const job of cronJobs) {
+    if (job.id && job.name) map[job.id] = job.name;
+  }
+  _cronJobsById = map;
+}
+
+function makeHumanLabel(sessionKey, agentId = "main") {
+  return _humanSessionLabel(sessionKey, agentId, _discordChannelMeta, _cronJobsById);
+}
+
 // Sessions module (factory pattern with dependency injection)
 const sessions = createSessionsModule({
   getOpenClawDir,
@@ -135,6 +175,7 @@ const sessions = createSessionsModule({
   runOpenClaw,
   runOpenClawAsync,
   extractJSON,
+  humanSessionLabel: makeHumanLabel,
 });
 
 // State module (factory pattern)
@@ -161,6 +202,42 @@ process.nextTick(() => migrateDataDir(DATA_DIR, LEGACY_DATA_DIR));
 startOperatorsRefresh(DATA_DIR, getOpenClawDir);
 startLlmUsageRefresh();
 startTokenUsageRefresh(getOpenClawDir);
+
+// Kick off Discord channel metadata fetch + periodic refresh (every 15 min)
+loadOpenClawConfig();
+// Initial fetch — session keys not known yet, resolve unknowns after first session load
+refreshDiscordMeta().catch(() => {});
+setInterval(() => refreshDiscordMeta().catch(() => {}), 15 * 60 * 1000);
+
+// After session cache warms up, resolve any unknown Discord thread/post IDs
+// then invalidate the sessions cache so labels are recomputed with resolved names
+setTimeout(async () => {
+  try {
+    const allSessions = sessions.getSessions({ limit: null });
+    const keys = (Array.isArray(allSessions) ? allSessions : allSessions?.sessions || [])
+      .map((s) => s.sessionKey)
+      .filter(Boolean);
+    await refreshDiscordMeta(keys);
+    // Force session cache to refresh so new labels are picked up
+    await sessions.refreshSessionsCache();
+  } catch (e) {
+    console.error("[session-labels] initial thread resolve failed:", e.message);
+  }
+}, 8000);
+
+// Keep cron job name map current (refresh whenever cron data is pulled)
+process.nextTick(async () => {
+  try {
+    const jobs = await getCronJobs(getOpenClawDir);
+    buildCronJobsById(jobs);
+  } catch {}
+});
+setInterval(async () => {
+  try {
+    const jobs = await getCronJobs(getOpenClawDir);
+    buildCronJobsById(jobs);
+  } catch {}
+}, 5 * 60 * 1000);
 
 // ============================================================================
 // STATIC FILE SERVER

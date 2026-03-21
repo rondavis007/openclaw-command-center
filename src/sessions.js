@@ -227,7 +227,7 @@ function createSessionsModule(deps) {
     else if (s.key === "agent:main:main") sessionType = "main";
 
     const originator = getSessionOriginator(s.sessionId);
-    const label = s.groupChannel || s.displayName || parseSessionLabel(s.key);
+    const label = s.groupChannel || s.displayName || deps.humanSessionLabel?.(s.key, s.agentId || "main") || parseSessionLabel(s.key);
     const topic = getSessionTopic(s.sessionId);
 
     const totalTokens = s.totalTokens || 0;
