@@ -341,6 +341,7 @@
                   style="width: 0%"
                 ></div>
               </div>
+              <div style="font-size:0.72em;opacity:0.6;margin-top:3px">resets <span id="claude-compact-session-reset">-</span></div>
             </div>
             <div style="margin-top: 8px">
               <div class="quota-stats">
@@ -354,6 +355,7 @@
                   style="width: 0%"
                 ></div>
               </div>
+              <div style="font-size:0.72em;opacity:0.6;margin-top:3px">resets <span id="claude-compact-week-reset">-</span></div>
             </div>
           </div>
 
@@ -3007,21 +3009,25 @@
           // Also update the compact quota card (uses different element IDs)
           const compactSessionEl = document.getElementById("claude-compact-session-pct");
           const compactSessionBar = document.getElementById("claude-compact-session-bar");
+          const compactSessionReset = document.getElementById("claude-compact-session-reset");
           if (compactSessionEl) compactSessionEl.textContent = sessionUsed + "%";
           if (compactSessionBar) {
             compactSessionBar.style.width = sessionUsed + "%";
             compactSessionBar.className =
               "quota-bar-fill " + (sessionUsed < 50 ? "low" : sessionUsed < 80 ? "medium" : "high");
           }
+          if (compactSessionReset) compactSessionReset.textContent = data.claude?.session?.resetsIn || "-";
 
           const compactWeekEl = document.getElementById("claude-compact-week-pct");
           const compactWeekBar = document.getElementById("claude-compact-week-bar");
+          const compactWeekReset = document.getElementById("claude-compact-week-reset");
           if (compactWeekEl) compactWeekEl.textContent = weeklyUsed + "%";
           if (compactWeekBar) {
             compactWeekBar.style.width = weeklyUsed + "%";
             compactWeekBar.className =
               "quota-bar-fill " + (weeklyUsed < 50 ? "low" : weeklyUsed < 80 ? "medium" : "high");
           }
+          if (compactWeekReset) compactWeekReset.textContent = data.claude?.weekly?.resets || "-";
 
           // Sonnet Weekly - Show USED as primary
           const sonnetRemaining = data.claude?.sonnet?.remainingPct || 0;
