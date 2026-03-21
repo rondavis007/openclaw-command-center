@@ -704,6 +704,42 @@ const server = http.createServer((req, res) => {
 // ============================================================================
 // START SERVER
 // ============================================================================
+// ============================================================================
+// CRASH LOGGING — catch all unhandled errors and signal exits before dying
+// ============================================================================
+const CRASH_LOG = "/tmp/command-center-crash.log";
+
+function writeCrashLog(reason, detail) {
+  const fs2 = require("fs");
+  const ts = new Date().toISOString();
+  const msg = `[${ts}] CRASH: ${reason}\n${detail}\n${"─".repeat(60)}\n`;
+  try { fs2.appendFileSync(CRASH_LOG, msg, "utf8"); } catch {}
+  console.error(msg);
+}
+
+process.on("uncaughtException", (err) => {
+  writeCrashLog("uncaughtException", err?.stack || String(err));
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  writeCrashLog("unhandledRejection", `Promise: ${promise}\nReason: ${reason?.stack || String(reason)}`);
+  // Don't exit — log and continue; some rejections are recoverable
+});
+
+for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) {
+  process.on(sig, () => {
+    writeCrashLog(`signal: ${sig}`, new Error().stack || "(no stack)");
+    process.exit(0);
+  });
+}
+
+process.on("exit", (code) => {
+  const fs2 = require("fs");
+  const ts = new Date().toISOString();
+  try { fs2.appendFileSync(CRASH_LOG, `[${ts}] EXIT code=${code}\n`, "utf8"); } catch {}
+});
+
 server.listen(PORT, () => {
   const profile = process.env.OPENCLAW_PROFILE;
   console.log(`\u{1F99E} OpenClaw Command Center running at http://localhost:${PORT}`);
