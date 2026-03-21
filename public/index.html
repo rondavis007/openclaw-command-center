@@ -2215,27 +2215,6 @@
                 const cardClass = s.active ? "active" : s.recentlyActive ? "recent-active" : "";
                 const status = s.active ? "live" : s.recentlyActive ? "recent" : "idle";
 
-                // Generate topic pills (filtered by privacy settings)
-                let topicPills = "";
-                if (s.topic) {
-                  const topics = s.topic
-                    .split(", ")
-                    .map((t) => t.trim())
-                    .filter((t) => t && !isTopicHidden(t));
-                  if (topics.length > 0) {
-                    topicPills = topics
-                      .map((t) => {
-                        const className = t.toLowerCase().replace(/[^a-z]/g, "");
-                        return `<span class="topic-pill ${className}">${escapeHtml(t)}</span>`;
-                      })
-                      .join("");
-                  }
-                }
-                // Always build one pills row containing topics + status badges
-                const topicHtml = `<div class="card-topics">${topicPills}${activityHtml}<span class="card-badge ${badgeClass}">${badgeText}</span></div>`;
-                const previewHtml = s.preview
-                  ? `<div class="card-preview">${escapeHtml(s.preview)}</div>`
-                  : "";
                 // Cerebro tag (filtered by privacy settings)
                 const cerebroTagHtml =
                   s.cerebroTopic && !isTopicHidden(s.cerebroTopic)
@@ -2268,6 +2247,27 @@
                             <span class="activity-label">${activityState.label}</span>
                         </div>
                     `;
+
+                // Generate topic pills (filtered by privacy settings) — include status badges in same row
+                let topicPills = "";
+                if (s.topic) {
+                  const topics = s.topic
+                    .split(", ")
+                    .map((t) => t.trim())
+                    .filter((t) => t && !isTopicHidden(t));
+                  if (topics.length > 0) {
+                    topicPills = topics
+                      .map((t) => {
+                        const className = t.toLowerCase().replace(/[^a-z]/g, "");
+                        return `<span class="topic-pill ${className}">${escapeHtml(t)}</span>`;
+                      })
+                      .join("");
+                  }
+                }
+                const topicHtml = `<div class="card-topics">${topicPills}${activityHtml}<span class="card-badge ${badgeClass}">${badgeText}</span></div>`;
+                const previewHtml = s.preview
+                  ? `<div class="card-preview">${escapeHtml(s.preview)}</div>`
+                  : "";
 
                 // Build metrics bar (fitness tracker style)
                 const m = s.metrics || { burnRate: 0, toolCalls: 0, minutesActive: 0 };
