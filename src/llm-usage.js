@@ -3,6 +3,50 @@ const path = require("path");
 const { execFile } = require("child_process");
 const { getSafeEnv } = require("./openclaw");
 
+function loadAnthropicScrapeFallback(...candidatePaths) {
+  for (const filePath of candidatePaths.filter(Boolean)) {
+    try {
+      if (!fs.existsSync(filePath)) continue;
+      const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
+      const sessionValid = Number.isFinite(data.claude?.session?.usedPct);
+      const weeklyValid = Number.isFinite(data.claude?.weekly?.usedPct);
+      const sonnetValid = Number.isFinite(data.claude?.sonnet?.usedPct);
+      if (!sessionValid && !weeklyValid && !sonnetValid) continue;
+
+      return {
+        timestamp: new Date().toISOString(),
+        source: "scraped",
+        claude: {
+          session: {
+            usedPct: data.claude?.session?.usedPct ?? null,
+            remainingPct: data.claude?.session?.remainingPct ?? null,
+            resetsIn: data.claude?.session?.resetsIn || null,
+          },
+          weekly: {
+            usedPct: data.claude?.weekly?.usedPct ?? null,
+            remainingPct: data.claude?.weekly?.remainingPct ?? null,
+            resets: data.claude?.weekly?.resets || null,
+          },
+          sonnet: {
+            usedPct: data.claude?.sonnet?.usedPct ?? null,
+            remainingPct: data.claude?.sonnet?.remainingPct ?? null,
+            resets: data.claude?.sonnet?.resets || null,
+          },
+          lastSynced: data.claude?.lastSynced || data.scrape?.extractedAt || data.timestamp || null,
+        },
+        codex: { sessionsToday: 0, tasksToday: 0, usage5hPct: 0, usageDayPct: 0 },
+        routing: { total: 0, claudeTasks: 0, codexTasks: 0, claudePct: 0, codexPct: 0, codexFloor: 20 },
+        scrape: data.scrape || null,
+        fetch: data.fetch || null,
+      };
+    } catch (e) {
+      console.error("[LLM Usage] Anthropic scrape fallback failed:", e.message);
+    }
+  }
+
+  return null;
+}
+
 // Cache for LLM usage data (openclaw CLI is slow ~4-5s)
 let llmUsageCache = { data: null, timestamp: 0, refreshing: false };
 const LLM_CACHE_TTL_MS = 60000; // 60 seconds
@@ -135,14 +179,23 @@ function getLlmUsage(statePath) {
     return llmUsageCache.data;
   }
 
-  // Cache empty or has error - check if we can read from state file
-  // But don't return misleading 0% values - return error/loading state instead
+  // Cache empty or has error - check if we can read from file fallbacks.
+  const anthropicScrapeFile = path.join(statePath, "anthropic-usage.json");
+  const bundledAnthropicScrapeFile = path.join(__dirname, "..", "public", "data", "anthropic-usage.json");
+  const scrapedFallback = loadAnthropicScrapeFallback(
+    process.env.ANTHROPIC_USAGE_OUTPUT,
+    anthropicScrapeFile,
+    bundledAnthropicScrapeFile,
+  );
+  if (scrapedFallback) {
+    return scrapedFallback;
+  }
+
+  // Legacy/state file fallback.
   const stateFile = path.join(statePath, "llm-routing.json");
   try {
     if (fs.existsSync(stateFile)) {
       const data = JSON.parse(fs.readFileSync(stateFile, "utf8"));
-      // Only use file data if it has valid (non-placeholder) usage values
-      // Check for "unknown" resets which indicates placeholder data from failed sync
       const sessionValid =
         data.claude?.session?.resets_in && data.claude.session.resets_in !== "unknown";
       const weeklyValid =
@@ -299,6 +352,7 @@ function startLlmUsageRefresh() {
 module.exports = {
   refreshLlmUsageAsync,
   transformLiveUsageData,
+  loadAnthropicScrapeFallback,
   getLlmUsage,
   getRoutingStats,
   startLlmUsageRefresh,

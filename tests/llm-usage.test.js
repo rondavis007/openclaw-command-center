@@ -1,8 +1,38 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert");
-const { transformLiveUsageData } = require("../src/llm-usage");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { transformLiveUsageData, loadAnthropicScrapeFallback } = require("../src/llm-usage");
 
 describe("llm-usage module", () => {
+  describe("loadAnthropicScrapeFallback()", () => {
+    it("loads Claude widget data from the scraped cache file", () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "anthropic-usage-"));
+      const file = path.join(tmpDir, "anthropic-usage.json");
+      fs.writeFileSync(
+        file,
+        JSON.stringify({
+          timestamp: "2026-03-20T22:30:50.548Z",
+          claude: {
+            session: { usedPct: 9, remainingPct: 91, resetsIn: "29 m" },
+            weekly: { usedPct: 1, remainingPct: 99, resets: "Fri 11:00 AM" },
+            sonnet: { usedPct: 1, remainingPct: 99, resets: "Fri 1:00 PM" },
+            lastSynced: "2026-03-20T22:30:50.549Z",
+          },
+          scrape: { ok: true },
+          fetch: { source: "openclaw-browser" },
+        }),
+      );
+
+      const result = loadAnthropicScrapeFallback(file);
+      assert.strictEqual(result.source, "scraped");
+      assert.strictEqual(result.claude.session.usedPct, 9);
+      assert.strictEqual(result.claude.weekly.resets, "Fri 11:00 AM");
+      assert.strictEqual(result.fetch.source, "openclaw-browser");
+    });
+  });
+
   describe("transformLiveUsageData()", () => {
     it("transforms valid usage data with anthropic provider", () => {
       const usage = {
