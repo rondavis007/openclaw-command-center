@@ -42,6 +42,9 @@ function writeChannelCache(cache) {
 }
 
 let _fetchInProgress = false;
+// IDs that previously failed lookup (deleted/inaccessible) — skip retrying these
+const _lookupFailedIds = new Set();
+
 // Pre-populate from disk so thread names survive restarts
 const _extraCache = (() => {
   try {
@@ -132,6 +135,7 @@ async function resolveUnknownChannels(sessionKeys, openclawConfig, channelMetada
   ];
 
   const unknownIds = ids.filter((id) => {
+    if (_lookupFailedIds.has(id)) return false;
     const inGuild = channelMetadata[id]?.channelLabel;
     const inExtra = _extraCache[id]?.channelLabel;
     return !inGuild && !inExtra;
@@ -139,13 +143,17 @@ async function resolveUnknownChannels(sessionKeys, openclawConfig, channelMetada
 
   if (!unknownIds.length) return;
 
+  // Cap lookups per call to avoid hammering the API at startup
+  const MAX_LOOKUPS_PER_CALL = 5;
+  const idsToLookup = unknownIds.slice(0, MAX_LOOKUPS_PER_CALL);
+
   // Look up each unknown ID via openclaw CLI (handles threads, forum posts etc.)
-  for (const id of unknownIds) {
+  for (const id of idsToLookup) {
     try {
       const out = execFileSync(
         "openclaw",
         ["message", "channel", "info", "--channel", "discord", "--target", `channel:${id}`, "--json"],
-        { encoding: "utf8", timeout: 10000 },
+        { encoding: "utf8", timeout: 10000, stdio: ["pipe", "pipe", "ignore"] },
       );
       const jsonStart = out.indexOf("{");
       const parsed = JSON.parse(jsonStart >= 0 ? out.slice(jsonStart) : out);
@@ -169,7 +177,7 @@ async function resolveUnknownChannels(sessionKeys, openclawConfig, channelMetada
             const pout = execFileSync(
               "openclaw",
               ["message", "channel", "info", "--channel", "discord", "--target", `channel:${c.parent_id}`, "--json"],
-              { encoding: "utf8", timeout: 10000 },
+              { encoding: "utf8", timeout: 10000, stdio: ["pipe", "pipe", "ignore"] },
             );
             const pjsonStart = pout.indexOf("{");
             const pparsed = JSON.parse(pjsonStart >= 0 ? pout.slice(pjsonStart) : pout);
@@ -190,8 +198,12 @@ async function resolveUnknownChannels(sessionKeys, openclawConfig, channelMetada
         }
       }
     } catch (e) {
-      // Non-fatal: channel info lookup failed for this ID
-      console.error("[session-labels] channel info lookup failed for", id, e.message);
+      // Mark as failed so we don't retry this ID on future startups
+      _lookupFailedIds.add(id);
+      // Only log unexpected errors — "Missing Access" is expected for deleted channels
+      if (!e.message.includes("Missing Access") && !e.message.includes("Unknown Channel")) {
+        console.error("[session-labels] channel info lookup failed for", id, e.message);
+      }
     }
   }
 }
