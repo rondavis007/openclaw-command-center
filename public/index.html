@@ -2892,7 +2892,11 @@
             return;
           }
 
-          if (data?.errorType === "rate_limit") {
+          if (
+            data?.errorType === "rate_limit" &&
+            data?.source !== "scraped" &&
+            data?.claude?.session?.usedPct == null
+          ) {
             $set("claude-session-pct", "innerHTML", '<span style="color:#f59e0b">N/A</span>');
             $set("claude-session-bar", "style.width", "0%");
             $set("claude-session-bar", "className", "vital-bar-fill gray");
