@@ -348,12 +348,12 @@ header {
   gap: 4px;
 }
 
-.card-status-row {
+.card-pills-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 6px;
   flex-wrap: wrap;
+  margin-top: 4px;
 }
 
 /* Stats Bar */
