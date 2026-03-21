@@ -329,33 +329,33 @@
             </div>
             <div>
               <div class="quota-stats">
-                <span>Session Usage</span>
-                <span
-                  ><span class="quota-value" id="claude-compact-session-pct">-%</span> used</span
-                >
+                <span>Current Session</span>
+                <span><span class="quota-value" id="claude-compact-session-pct">-%</span> used</span>
               </div>
               <div class="quota-bar">
-                <div
-                  class="quota-bar-fill low"
-                  id="claude-compact-session-bar"
-                  style="width: 0%"
-                ></div>
+                <div class="quota-bar-fill low" id="claude-compact-session-bar" style="width: 0%"></div>
               </div>
               <div style="font-size:0.72em;opacity:0.6;margin-top:3px">resets <span id="claude-compact-session-reset">-</span></div>
             </div>
             <div style="margin-top: 8px">
               <div class="quota-stats">
-                <span>Weekly Usage</span>
+                <span>All Models (Weekly)</span>
                 <span><span class="quota-value" id="claude-compact-week-pct">-%</span> used</span>
               </div>
               <div class="quota-bar">
-                <div
-                  class="quota-bar-fill low"
-                  id="claude-compact-week-bar"
-                  style="width: 0%"
-                ></div>
+                <div class="quota-bar-fill low" id="claude-compact-week-bar" style="width: 0%"></div>
               </div>
               <div style="font-size:0.72em;opacity:0.6;margin-top:3px">resets <span id="claude-compact-week-reset">-</span></div>
+            </div>
+            <div style="margin-top: 8px">
+              <div class="quota-stats">
+                <span>Sonnet Only (Weekly)</span>
+                <span><span class="quota-value" id="claude-compact-sonnet-pct">-%</span> used</span>
+              </div>
+              <div class="quota-bar">
+                <div class="quota-bar-fill low" id="claude-compact-sonnet-bar" style="width: 0%"></div>
+              </div>
+              <div style="font-size:0.72em;opacity:0.6;margin-top:3px">resets <span id="claude-compact-sonnet-reset">-</span></div>
             </div>
           </div>
 
@@ -2881,17 +2881,15 @@
             const compactSessionEl = document.getElementById("claude-compact-session-pct");
             const compactSessionBar = document.getElementById("claude-compact-session-bar");
             if (compactSessionEl) compactSessionEl.textContent = "N/A";
-            if (compactSessionBar) {
-              compactSessionBar.style.width = "0%";
-              compactSessionBar.className = "quota-bar-fill gray";
-            }
+            if (compactSessionBar) { compactSessionBar.style.width = "0%"; compactSessionBar.className = "quota-bar-fill gray"; }
             const compactWeekEl = document.getElementById("claude-compact-week-pct");
             const compactWeekBar = document.getElementById("claude-compact-week-bar");
             if (compactWeekEl) compactWeekEl.textContent = "N/A";
-            if (compactWeekBar) {
-              compactWeekBar.style.width = "0%";
-              compactWeekBar.className = "quota-bar-fill gray";
-            }
+            if (compactWeekBar) { compactWeekBar.style.width = "0%"; compactWeekBar.className = "quota-bar-fill gray"; }
+            const compactSonnetEl2 = document.getElementById("claude-compact-sonnet-pct");
+            const compactSonnetBar2 = document.getElementById("claude-compact-sonnet-bar");
+            if (compactSonnetEl2) compactSonnetEl2.textContent = "N/A";
+            if (compactSonnetBar2) { compactSonnetBar2.style.width = "0%"; compactSonnetBar2.className = "quota-bar-fill gray"; }
 
             // Compact cards - Codex (render independently even when Claude auth fails)
             const codex5hEl = document.getElementById("codex-5h-pct");
@@ -2966,10 +2964,11 @@
             const compactWeekEl = document.getElementById("claude-compact-week-pct");
             const compactWeekBar = document.getElementById("claude-compact-week-bar");
             if (compactWeekEl) compactWeekEl.textContent = "N/A";
-            if (compactWeekBar) {
-              compactWeekBar.style.width = "0%";
-              compactWeekBar.className = "quota-bar-fill gray";
-            }
+            if (compactWeekBar) { compactWeekBar.style.width = "0%"; compactWeekBar.className = "quota-bar-fill gray"; }
+            const compactSonnetEl3 = document.getElementById("claude-compact-sonnet-pct");
+            const compactSonnetBar3 = document.getElementById("claude-compact-sonnet-bar");
+            if (compactSonnetEl3) compactSonnetEl3.textContent = "N/A";
+            if (compactSonnetBar3) { compactSonnetBar3.style.width = "0%"; compactSonnetBar3.className = "quota-bar-fill gray"; }
             $set("llm-sync-time", "textContent", data?.error || "Rate limited");
             return;
           }
@@ -3070,6 +3069,18 @@
               "quota-bar-fill " + (weeklyUsed < 50 ? "low" : weeklyUsed < 80 ? "medium" : "high");
           }
           if (compactWeekReset) compactWeekReset.textContent = data.claude?.weekly?.resets || "-";
+
+          const compactSonnetEl = document.getElementById("claude-compact-sonnet-pct");
+          const compactSonnetBar = document.getElementById("claude-compact-sonnet-bar");
+          const compactSonnetReset = document.getElementById("claude-compact-sonnet-reset");
+          const sonnetUsedCompact = data.claude?.sonnet?.usedPct || 0;
+          if (compactSonnetEl) compactSonnetEl.textContent = sonnetUsedCompact + "%";
+          if (compactSonnetBar) {
+            compactSonnetBar.style.width = sonnetUsedCompact + "%";
+            compactSonnetBar.className =
+              "quota-bar-fill " + (sonnetUsedCompact < 50 ? "low" : sonnetUsedCompact < 80 ? "medium" : "high");
+          }
+          if (compactSonnetReset) compactSonnetReset.textContent = data.claude?.sonnet?.resets || "-";
 
           // Sonnet Weekly - Show USED as primary
           const sonnetRemaining = data.claude?.sonnet?.remainingPct || 0;
