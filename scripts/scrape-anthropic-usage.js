@@ -74,16 +74,20 @@ function extractTabId(openOutput) {
 }
 
 function snapshotViaBrowser({ url, browserProfile, timeoutMs, closeTab }) {
-  runOpenClaw(["browser", "--browser-profile", browserProfile, "start"], timeoutMs);
+  // Per-step timeouts: short ops get 15s, the wait-for-load gets most of the budget
+  const shortMs = Math.min(15000, timeoutMs);
+  const waitMs = Math.max(timeoutMs, 60000); // always at least 60s for the page load
+
+  runOpenClaw(["browser", "--browser-profile", browserProfile, "start"], shortMs);
   const openOutput = runOpenClaw(
     ["browser", "--browser-profile", browserProfile, "open", url],
-    timeoutMs,
+    shortMs,
   );
   const tabId = extractTabId(openOutput);
 
   try {
     if (tabId) {
-      runOpenClaw(["browser", "--browser-profile", browserProfile, "focus", tabId], timeoutMs);
+      runOpenClaw(["browser", "--browser-profile", browserProfile, "focus", tabId], shortMs);
     }
 
     runOpenClaw(
@@ -95,12 +99,12 @@ function snapshotViaBrowser({ url, browserProfile, timeoutMs, closeTab }) {
         "--load",
         "networkidle",
       ],
-      timeoutMs,
+      waitMs,
     );
 
     const snapshot = runOpenClaw(
       ["browser", "--browser-profile", browserProfile, "snapshot", "--limit", "250"],
-      timeoutMs,
+      shortMs,
     );
 
     return { snapshot, tabId };
