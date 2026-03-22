@@ -1993,15 +1993,16 @@
 
         // Render each section
         if (state.vitals) renderVitals(state.vitals);
-        // Only re-render sessions from SSE push when no status filter is active.
-        // If a filter is active, keep the current filtered view — don't blow it away.
+        // Sessions: if no filter, use the SSE payload directly.
+        // If a filter is active, re-fetch with the current filter so the view stays fresh.
         if (state.sessions) {
           if (sessionFilters.status === "all") {
             renderSessions(state.sessions, state.pagination, state.statusCounts);
-          } else if (state.statusCounts) {
-            // Still update the counts even when filtered
-            updateFilterCountsFromServer(state.statusCounts);
+          } else {
+            // Re-fetch filtered list in the background (non-blocking)
+            fetchSessions(paginationState.page);
           }
+          if (state.statusCounts) updateFilterCountsFromServer(state.statusCounts);
         }
         if (state.tokenStats) renderTokenStats(state.tokenStats);
         if (state.capacity) renderCapacity(state.capacity);
