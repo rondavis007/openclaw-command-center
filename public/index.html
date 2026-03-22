@@ -339,6 +339,16 @@
             </div>
             <div style="margin-top: 8px">
               <div class="quota-stats">
+                <span>Week Elapsed</span>
+                <span class="quota-value" id="claude-week-elapsed-pct">-%</span>
+              </div>
+              <div class="quota-bar">
+                <div class="quota-bar-fill week-progress" id="claude-week-elapsed-bar" style="width: 0%"></div>
+              </div>
+              <div style="font-size:0.72em;opacity:0.6;margin-top:3px">window ends <span id="claude-week-elapsed-end">-</span></div>
+            </div>
+            <div style="margin-top: 8px">
+              <div class="quota-stats">
                 <span>All Models (Weekly)</span>
                 <span><span class="quota-value" id="claude-compact-week-pct">-%</span> used</span>
               </div>
@@ -387,19 +397,15 @@
               </div>
               <div style="font-size:0.72em;opacity:0.6;margin-top:3px">resets <span id="codex-day-reset">-</span></div>
             </div>
-            <div
-              style="
-                margin-top: 16px;
-                padding-top: 12px;
-                border-top: 1px solid var(--border);
-                font-size: 0.75rem;
-                color: var(--text-muted);
-              "
-            >
-              <div style="display: flex; justify-content: space-between">
-                <span>Tasks Today</span>
-                <span id="codex-tasks">0</span>
+            <div style="margin-top: 8px">
+              <div class="quota-stats">
+                <span>Week Elapsed</span>
+                <span class="quota-value" id="codex-week-elapsed-pct">-%</span>
               </div>
+              <div class="quota-bar">
+                <div class="quota-bar-fill week-progress" id="codex-week-elapsed-bar" style="width: 0%"></div>
+              </div>
+              <div style="font-size:0.72em;opacity:0.6;margin-top:3px">window ends <span id="codex-week-elapsed-end">-</span></div>
             </div>
           </div>
         </div>
@@ -2972,6 +2978,38 @@
           }
           if (compactSonnetReset) compactSonnetReset.textContent = data.claude?.sonnet?.resets || "-";
 
+          // Claude week-elapsed bar — calculated from weekly reset time
+          (function() {
+            const resetStr = data.claude?.weekly?.resets; // e.g. "Fri 11:00 AM"
+            const bar = document.getElementById("claude-week-elapsed-bar");
+            const pct = document.getElementById("claude-week-elapsed-pct");
+            const end = document.getElementById("claude-week-elapsed-end");
+            if (!bar || !pct) return;
+            if (!resetStr) { pct.textContent = "-%"; bar.style.width = "0%"; return; }
+            try {
+              // Parse "Day HH:MM AM/PM" style → find next occurrence
+              const days = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+              const parts = resetStr.match(/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+(\d+):(\d+)\s+(AM|PM)$/i);
+              if (!parts) { pct.textContent = "?"; return; }
+              const targetDay = days.indexOf(parts[1]);
+              let h = parseInt(parts[2]); const m = parseInt(parts[3]); const ampm = parts[4].toUpperCase();
+              if (ampm === "PM" && h < 12) h += 12;
+              if (ampm === "AM" && h === 12) h = 0;
+              const now = new Date();
+              const resetDate = new Date(now);
+              resetDate.setHours(h, m, 0, 0);
+              let diff = targetDay - resetDate.getDay();
+              if (diff < 0 || (diff === 0 && now >= resetDate)) diff += 7;
+              resetDate.setDate(resetDate.getDate() + diff);
+              const windowStart = new Date(resetDate.getTime() - 7 * 24 * 3600000);
+              const elapsed = (now - windowStart) / (7 * 24 * 3600000);
+              const elapsedPct = Math.round(Math.max(0, Math.min(100, elapsed * 100)));
+              bar.style.width = elapsedPct + "%";
+              pct.textContent = elapsedPct + "%";
+              if (end) end.textContent = resetDate.toLocaleDateString("en-US", {weekday:"short", month:"short", day:"numeric", hour:"numeric", minute:"2-digit"});
+            } catch(e) { pct.textContent = "?"; }
+          })();
+
           // Sonnet Weekly - Show USED as primary
           const sonnetRemaining = data.claude?.sonnet?.remainingPct || 0;
           const sonnetUsed = data.claude?.sonnet?.usedPct || 0;
@@ -3011,6 +3049,37 @@
             codexDayBar.style.width = `${codexDayUsed}%`;
             codexDayBar.className = `quota-bar-fill ${codexDayUsed < 50 ? "low" : codexDayUsed < 80 ? "medium" : "high"}`;
           }
+
+          // Codex week-elapsed bar — calculated from exact reset timestamp
+          (function() {
+            const resetRaw = data.codex?.resetDay; // e.g. "5d" or could be ISO if scraped
+            const bar = document.getElementById("codex-week-elapsed-bar");
+            const pctEl = document.getElementById("codex-week-elapsed-pct");
+            const endEl = document.getElementById("codex-week-elapsed-end");
+            if (!bar || !pctEl) return;
+            // resetDay is currently a relative string like "4d" or "2h"
+            // Convert to ms from now
+            if (!resetRaw || resetRaw === "?" || resetRaw === "-") { pctEl.textContent = "-%"; bar.style.width = "0%"; return; }
+            try {
+              let msUntilReset = 0;
+              const dMatch = resetRaw.match(/^(\d+)d$/);
+              const hMatch = resetRaw.match(/^(\d+)h$/);
+              const mMatch = resetRaw.match(/^(\d+)m$/);
+              if (dMatch) msUntilReset = parseInt(dMatch[1]) * 86400000;
+              else if (hMatch) msUntilReset = parseInt(hMatch[1]) * 3600000;
+              else if (mMatch) msUntilReset = parseInt(mMatch[1]) * 60000;
+              else { pctEl.textContent = "?"; return; }
+              const windowMs = 7 * 24 * 3600000;
+              const elapsed = (windowMs - msUntilReset) / windowMs;
+              const elapsedPct = Math.round(Math.max(0, Math.min(100, elapsed * 100)));
+              bar.style.width = elapsedPct + "%";
+              pctEl.textContent = elapsedPct + "%";
+              if (endEl) {
+                const resetDate = new Date(Date.now() + msUntilReset);
+                endEl.textContent = resetDate.toLocaleDateString("en-US", {weekday:"short", month:"short", day:"numeric", hour:"numeric", minute:"2-digit"});
+              }
+            } catch(e) { pctEl.textContent = "?"; }
+          })();
 
           // Task Routing
           const totalTasks = data.routing?.total || 0;

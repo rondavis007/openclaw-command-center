@@ -873,6 +873,12 @@ main {
   height: 12px;
   flex-shrink: 0;
 }
+/* Week elapsed progress bar — neutral purple/slate to distinguish from usage bars */
+.quota-bar-fill.week-progress {
+  background: linear-gradient(90deg, #6b7db3, #8892c0);
+  opacity: 0.75;
+}
+
 .model-badge.provider-anthropic { border-color: #cf7b4855; color: #cf9a70; }
 .model-badge.provider-openai    { border-color: #10a37f55; color: #10a37f; }
 .model-badge.provider-xai       { border-color: #50505055; color: #d0d0d0; }
