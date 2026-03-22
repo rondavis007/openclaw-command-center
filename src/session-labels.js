@@ -43,7 +43,24 @@ function writeChannelCache(cache) {
 
 let _fetchInProgress = false;
 // IDs that previously failed lookup (deleted/inaccessible) — skip retrying these
-const _lookupFailedIds = new Set();
+// Persisted to disk alongside the channel cache so it survives restarts.
+const FAILED_IDS_CACHE_PATH = DISCORD_CACHE_PATH.replace(/\.json$/, ".failed-ids.json");
+
+function _loadFailedIds() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(FAILED_IDS_CACHE_PATH, "utf8"));
+    return new Set(Array.isArray(raw) ? raw : []);
+  } catch { return new Set(); }
+}
+
+function _saveFailedIds(set) {
+  try {
+    fs.mkdirSync(path.dirname(FAILED_IDS_CACHE_PATH), { recursive: true });
+    fs.writeFileSync(FAILED_IDS_CACHE_PATH, JSON.stringify([...set], null, 2));
+  } catch {}
+}
+
+const _lookupFailedIds = _loadFailedIds();
 
 // Pre-populate from disk so thread names survive restarts
 const _extraCache = (() => {
@@ -198,8 +215,9 @@ async function resolveUnknownChannels(sessionKeys, openclawConfig, channelMetada
         }
       }
     } catch (e) {
-      // Mark as failed so we don't retry this ID on future startups
+      // Mark as failed so we don't retry this ID — persist to disk to survive restarts
       _lookupFailedIds.add(id);
+      _saveFailedIds(_lookupFailedIds);
       // Only log unexpected errors — "Missing Access" is expected for deleted channels
       if (!e.message.includes("Missing Access") && !e.message.includes("Unknown Channel")) {
         console.error("[session-labels] channel info lookup failed for", id, e.message);

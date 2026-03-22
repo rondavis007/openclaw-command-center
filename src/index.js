@@ -763,7 +763,7 @@ server.listen(PORT, () => {
   }, 100);
 
   // Background cache refresh
-  const SESSIONS_CACHE_TTL = 10000;
+  const SESSIONS_CACHE_TTL = 30000; // 30s — reduced from 10s to ease gateway load
   setInterval(() => sessions.refreshSessionsCache(), SESSIONS_CACHE_TTL);
 });
 

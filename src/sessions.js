@@ -78,7 +78,7 @@ function createSessionsModule(deps) {
 
   // SESSION CACHE - Async refresh to avoid blocking
   let sessionsCache = { sessions: [], timestamp: 0, refreshing: false };
-  const SESSIONS_CACHE_TTL = 10000; // 10 seconds
+  const SESSIONS_CACHE_TTL = 30000; // 30 seconds — reduced from 10s to ease gateway load
 
   // Extract session originator from transcript
   function getSessionOriginator(sessionId) {
