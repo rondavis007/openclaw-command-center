@@ -1866,9 +1866,11 @@ main {
 }
 .utilization-icon.anthropic {
   background: rgba(216, 153, 99, 0.2);
+  color: #d89963;
 }
 .utilization-icon.openai {
   background: rgba(16, 163, 127, 0.2);
+  color: #10a37f;
 }
 .utilization-title {
   font-weight: 600;
