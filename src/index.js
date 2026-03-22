@@ -147,13 +147,12 @@ function loadOpenClawConfig() {
   }
 }
 
-async function refreshDiscordMeta(sessionKeys = []) {
+async function refreshDiscordMeta(_sessionKeys = []) {
+  // CC is now cache-read-only for Discord channel data.
+  // All resolution happens in the dedicated cron job (refresh-discord-channels.js).
+  // Just reload from disk — no live API calls.
   if (!_openclawConfig) loadOpenClawConfig();
-  if (!_openclawConfig) return;
   _discordChannelMeta = await getDiscordChannelMetadata(_openclawConfig);
-  if (sessionKeys.length) {
-    await resolveUnknownChannels(sessionKeys, _openclawConfig, _discordChannelMeta);
-  }
 }
 
 function buildCronJobsById(cronJobs = []) {
@@ -209,19 +208,13 @@ loadOpenClawConfig();
 refreshDiscordMeta().catch(() => {});
 setInterval(() => refreshDiscordMeta().catch(() => {}), 15 * 60 * 1000);
 
-// After session cache warms up, resolve any unknown Discord thread/post IDs
-// then invalidate the sessions cache so labels are recomputed with resolved names
+// Reload channel meta after sessions warm up so new cache entries are applied to labels
 setTimeout(async () => {
   try {
-    const allSessions = sessions.getSessions({ limit: null });
-    const keys = (Array.isArray(allSessions) ? allSessions : allSessions?.sessions || [])
-      .map((s) => s.sessionKey)
-      .filter(Boolean);
-    await refreshDiscordMeta(keys);
-    // Force session cache to refresh so new labels are picked up
+    await refreshDiscordMeta();
     await sessions.refreshSessionsCache();
   } catch (e) {
-    console.error("[session-labels] initial thread resolve failed:", e.message);
+    console.error("[session-labels] post-warmup meta refresh failed:", e.message);
   }
 }, 8000);
 
