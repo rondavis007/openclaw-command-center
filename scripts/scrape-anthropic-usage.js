@@ -90,16 +90,11 @@ function snapshotViaBrowser({ url, browserProfile, timeoutMs, closeTab }) {
       runOpenClaw(["browser", "--browser-profile", browserProfile, "focus", tabId], shortMs);
     }
 
+    // Use fixed-time wait instead of networkidle — the latter times out intermittently
+    // even when the page is fully loaded, because background activity keeps the network busy.
     runOpenClaw(
-      [
-        "browser",
-        "--browser-profile",
-        browserProfile,
-        "wait",
-        "--load",
-        "networkidle",
-      ],
-      waitMs,
+      ["browser", "--browser-profile", browserProfile, "wait", "--time", "4000"],
+      shortMs,
     );
 
     const snapshot = runOpenClaw(
