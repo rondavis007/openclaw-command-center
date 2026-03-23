@@ -74,9 +74,9 @@ function extractTabId(openOutput) {
 }
 
 function snapshotViaBrowser({ url, browserProfile, timeoutMs, closeTab }) {
-  // Per-step timeouts: short ops get 15s, the wait-for-load gets most of the budget
-  const shortMs = Math.min(15000, timeoutMs);
-  const waitMs = Math.max(timeoutMs, 60000); // always at least 60s for the page load
+  // Per-step timeouts: short ops get 30s (generous for busy gateway), wait gets full budget
+  const shortMs = Math.min(30000, timeoutMs);
+  const waitMs = Math.max(timeoutMs, 60000);
 
   runOpenClaw(["browser", "--browser-profile", browserProfile, "start"], shortMs);
   const openOutput = runOpenClaw(
