@@ -92,6 +92,52 @@ function fetchGuildChannels(guildId) {
   }
 }
 
+function fetchForumThreads(guildId, forumChannelId, accounts) {
+  // Use openclaw message thread list per forum channel, trying each bot account
+  const threads = new Map();
+  for (const account of accounts) {
+    try {
+      const out = runOcl([
+        "message", "thread", "list",
+        "--channel", "discord",
+        "--guild-id", guildId,
+        "--channel-id", forumChannelId,
+        "--account", account,
+        "--json",
+      ]);
+      const start = out.indexOf("{");
+      const parsed = JSON.parse(start >= 0 ? out.slice(start) : out);
+      const raw = parsed?.payload?.threads;
+      const list = (typeof raw === "object" && !Array.isArray(raw)) ? (raw?.threads || []) : (raw || []);
+      for (const t of Array.isArray(list) ? list : []) {
+        if (!threads.has(t.id)) threads.set(t.id, t);
+      }
+    } catch {
+      // Skip accounts that don't have access
+    }
+  }
+  return [...threads.values()];
+}
+
+function fetchChannelInfoWithAccounts(channelId, accounts) {
+  for (const account of accounts) {
+    try {
+      const out = runOcl([
+        "message", "channel", "info",
+        "--channel", "discord",
+        "--account", account,
+        "--target", `channel:${channelId}`,
+        "--json",
+      ]);
+      const start = out.indexOf("{");
+      const parsed = JSON.parse(start >= 0 ? out.slice(start) : out);
+      const c = parsed?.payload?.channel;
+      if (c?.name) return c;
+    } catch {}
+  }
+  return null;
+}
+
 function fetchChannelInfo(channelId) {
   try {
     const out = runOcl([
@@ -108,6 +154,10 @@ function fetchChannelInfo(channelId) {
   }
 }
 
+function getAccountNames(config) {
+  return Object.keys(config?.channels?.discord?.accounts || {});
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const config = loadOpenClawConfig(args.configPath);
@@ -122,6 +172,8 @@ async function main() {
     process.exit(1);
   }
 
+  const accounts = getAccountNames(config);
+
   // Load existing cache (to preserve thread entries and failed IDs)
   const existing = readJson(args.cacheOutput) || { fetchedAt: 0, channels: {} };
   const failedIds = new Set(readJson(DEFAULT_FAILED_IDS_PATH) || []);
@@ -129,6 +181,7 @@ async function main() {
 
   // 1. Fetch all guild channels (one call per guild — very cheap)
   let guildChannelCount = 0;
+  const forumChannelIds = [];
   for (const guildId of guildIds) {
     const list = fetchGuildChannels(guildId);
     for (const c of list) {
@@ -140,20 +193,41 @@ async function main() {
         updatedAt: Date.now(),
       };
       guildChannelCount++;
+      // Collect forum channels (type 15) to fetch their threads
+      if (Number(c.type) === 15) forumChannelIds.push({ id: c.id, guildId });
     }
   }
-  console.log(`[refresh-discord] Guild channels fetched: ${guildChannelCount}`);
+  console.log(`[refresh-discord] Guild channels fetched: ${guildChannelCount}, forums: ${forumChannelIds.length}`);
 
-  // 2. Resolve any thread IDs that are cached but might have stale names
-  //    (type 11 = public thread, 12 = private thread)
-  const threadIds = Object.entries(channels)
+  // 2. Fetch active threads inside each forum channel, trying all bot accounts
+  let threadCount = 0;
+  for (const { id: forumId, guildId } of forumChannelIds) {
+    const threads = fetchForumThreads(guildId, forumId, accounts);
+    for (const t of threads) {
+      const label = formatLabel(t.name, t.type, t.id);
+      if (!channels[t.id] || channels[t.id].channelLabel !== label) {
+        channels[t.id] = {
+          guildId,
+          channelLabel: label,
+          parentId: t.parent_id || forumId,
+          type: t.type,
+          updatedAt: Date.now(),
+        };
+        threadCount++;
+      }
+    }
+  }
+  console.log(`[refresh-discord] Forum threads discovered/updated: ${threadCount}`);
+
+  // 3. Refresh names for known thread IDs in cache (in case they were renamed)
+  const knownThreadIds = Object.entries(channels)
     .filter(([, v]) => v.type && [11, 12].includes(Number(v.type)))
     .map(([id]) => id);
 
   let refreshed = 0;
-  for (const id of threadIds) {
+  for (const id of knownThreadIds) {
     if (failedIds.has(id)) continue;
-    const c = fetchChannelInfo(id);
+    const c = fetchChannelInfoWithAccounts(id, accounts);
     if (c?.name) {
       channels[id] = {
         ...channels[id],
@@ -163,11 +237,10 @@ async function main() {
       };
       refreshed++;
     } else if (c === null) {
-      // Lookup failed — add to failed list (deleted/inaccessible)
       failedIds.add(id);
     }
   }
-  console.log(`[refresh-discord] Threads refreshed: ${refreshed}`);
+  console.log(`[refresh-discord] Thread names refreshed: ${refreshed}`);
 
   // 3. Write updated cache
   const cache = { fetchedAt: Date.now(), channels };
