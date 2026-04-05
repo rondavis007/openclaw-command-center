@@ -9,8 +9,10 @@ function loadAnthropicScrapeFallback(...candidatePaths) {
       if (!fs.existsSync(filePath)) continue;
       const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
       const sessionValid = Number.isFinite(data.claude?.session?.usedPct);
-      const weeklyValid = Number.isFinite(data.claude?.weekly?.usedPct);
-      const sonnetValid = Number.isFinite(data.claude?.sonnet?.usedPct);
+      const weekly = data.claude?.weekly?.allModels || data.claude?.weekly;
+      const sonnet = data.claude?.weekly?.sonnet || data.claude?.sonnet;
+      const weeklyValid = Number.isFinite(weekly?.usedPct);
+      const sonnetValid = Number.isFinite(sonnet?.usedPct);
       if (!sessionValid && !weeklyValid && !sonnetValid) continue;
 
       return {
@@ -23,14 +25,14 @@ function loadAnthropicScrapeFallback(...candidatePaths) {
             resetsIn: data.claude?.session?.resetsIn || null,
           },
           weekly: {
-            usedPct: data.claude?.weekly?.usedPct ?? null,
-            remainingPct: data.claude?.weekly?.remainingPct ?? null,
-            resets: data.claude?.weekly?.resets || null,
+            usedPct: weekly?.usedPct ?? null,
+            remainingPct: weekly?.remainingPct ?? null,
+            resets: weekly?.resets || data.claude?.resetInfo || null,
           },
           sonnet: {
-            usedPct: data.claude?.sonnet?.usedPct ?? null,
-            remainingPct: data.claude?.sonnet?.remainingPct ?? null,
-            resets: data.claude?.sonnet?.resets || null,
+            usedPct: sonnet?.usedPct ?? null,
+            remainingPct: sonnet?.remainingPct ?? null,
+            resets: sonnet?.resets || null,
           },
           lastSynced: data.claude?.lastSynced || data.scrape?.extractedAt || data.timestamp || null,
         },
@@ -41,6 +43,37 @@ function loadAnthropicScrapeFallback(...candidatePaths) {
       };
     } catch (e) {
       console.error("[LLM Usage] Anthropic scrape fallback failed:", e.message);
+    }
+  }
+
+  return null;
+}
+
+function loadCodexScrapeFallback(...candidatePaths) {
+  for (const filePath of candidatePaths.filter(Boolean)) {
+    try {
+      if (!fs.existsSync(filePath)) continue;
+      const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
+      const hourlyValid = Number.isFinite(data.codex?.hourly?.usedPct);
+      const weeklyValid = Number.isFinite(data.codex?.weekly?.usedPct);
+      if (!hourlyValid && !weeklyValid) continue;
+
+      return {
+        timestamp: new Date().toISOString(),
+        source: "scraped",
+        codex: {
+          sessionsToday: 0,
+          tasksToday: 0,
+          usage5hPct: data.codex?.hourly?.usedPct ?? 0,
+          usageDayPct: data.codex?.weekly?.usedPct ?? 0,
+          reset5h: data.codex?.hourly?.resetsIn || null,
+          resetDay: data.codex?.weekly?.resetsAt || data.codex?.weekly?.resets || null,
+        },
+        scrape: data.scrape || null,
+        fetch: data.fetch || null,
+      };
+    } catch (e) {
+      console.error("[LLM Usage] Codex scrape fallback failed:", e.message);
     }
   }
 
@@ -191,25 +224,48 @@ function getLlmUsage(statePath) {
   // Cache empty or has error - check if we can read from file fallbacks.
   const anthropicScrapeFile = path.join(statePath, "anthropic-usage.json");
   const bundledAnthropicScrapeFile = path.join(__dirname, "..", "public", "data", "anthropic-usage.json");
-  const scrapedFallback = loadAnthropicScrapeFallback(
+  const codexScrapeFile = path.join(statePath, "codex-usage.json");
+  const bundledCodexScrapeFile = path.join(__dirname, "..", "public", "data", "codex-usage.json");
+  const anthropicScrapedFallback = loadAnthropicScrapeFallback(
     process.env.ANTHROPIC_USAGE_OUTPUT,
     anthropicScrapeFile,
     bundledAnthropicScrapeFile,
   );
+  const codexScrapedFallback = loadCodexScrapeFallback(
+    process.env.CODEX_USAGE_OUTPUT,
+    codexScrapeFile,
+    bundledCodexScrapeFile,
+  );
 
-  // If live data has an Anthropic error but still contains Codex usage, merge them.
-  if (llmUsageCache.data && llmUsageCache.data.source === "error" && scrapedFallback) {
-    return {
-      ...llmUsageCache.data,
-      source: "scraped",
-      claude: scrapedFallback.claude,
-      scrape: scrapedFallback.scrape || null,
-      fetch: scrapedFallback.fetch || null,
-    };
+  // If live data has an Anthropic error but still contains Codex usage, merge both scrape fallbacks.
+  if (llmUsageCache.data && llmUsageCache.data.source === "error") {
+    if (anthropicScrapedFallback || codexScrapedFallback) {
+      return {
+        ...llmUsageCache.data,
+        source: "scraped",
+        claude: anthropicScrapedFallback?.claude || llmUsageCache.data.claude,
+        codex: codexScrapedFallback?.codex || llmUsageCache.data.codex,
+        scrape: anthropicScrapedFallback?.scrape || codexScrapedFallback?.scrape || null,
+        fetch: anthropicScrapedFallback?.fetch || codexScrapedFallback?.fetch || null,
+      };
+    }
   }
 
-  if (scrapedFallback) {
-    return scrapedFallback;
+  if (anthropicScrapedFallback || codexScrapedFallback) {
+    return {
+      timestamp: new Date().toISOString(),
+      source: "scraped",
+      claude: anthropicScrapedFallback?.claude || {
+        session: { usedPct: null, remainingPct: null, resetsIn: null },
+        weekly: { usedPct: null, remainingPct: null, resets: null },
+        sonnet: { usedPct: null, remainingPct: null, resets: null },
+        lastSynced: null,
+      },
+      codex: codexScrapedFallback?.codex || { sessionsToday: 0, tasksToday: 0, usage5hPct: 0, usageDayPct: 0 },
+      routing: { total: 0, claudeTasks: 0, codexTasks: 0, claudePct: 0, codexPct: 0, codexFloor: 20 },
+      scrape: anthropicScrapedFallback?.scrape || codexScrapedFallback?.scrape || null,
+      fetch: anthropicScrapedFallback?.fetch || codexScrapedFallback?.fetch || null,
+    };
   }
 
   // Legacy/state file fallback.

@@ -2978,36 +2978,71 @@
           }
           if (compactSonnetReset) compactSonnetReset.textContent = data.claude?.sonnet?.resets || "-";
 
-          // Claude week-elapsed bar — calculated from weekly reset time
+          // Claude week-elapsed bar — supports weekday timestamps ("Fri 11:00 AM") and relative resets ("3 h", "5 hr 36 min")
           (function() {
-            const resetStr = data.claude?.weekly?.resets; // e.g. "Fri 11:00 AM"
+            const resetStr = data.claude?.weekly?.resets;
             const bar = document.getElementById("claude-week-elapsed-bar");
             const pct = document.getElementById("claude-week-elapsed-pct");
             const end = document.getElementById("claude-week-elapsed-end");
             if (!bar || !pct) return;
-            if (!resetStr) { pct.textContent = "-%"; bar.style.width = "0%"; return; }
+            if (!resetStr) {
+              pct.textContent = "-%";
+              bar.style.width = "0%";
+              if (end) end.textContent = "-";
+              return;
+            }
             try {
-              // Parse "Day HH:MM AM/PM" style → find next occurrence
-              const days = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-              const parts = resetStr.match(/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+(\d+):(\d+)\s+(AM|PM)$/i);
-              if (!parts) { pct.textContent = "?"; return; }
-              const targetDay = days.indexOf(parts[1]);
-              let h = parseInt(parts[2]); const m = parseInt(parts[3]); const ampm = parts[4].toUpperCase();
-              if (ampm === "PM" && h < 12) h += 12;
-              if (ampm === "AM" && h === 12) h = 0;
               const now = new Date();
-              const resetDate = new Date(now);
-              resetDate.setHours(h, m, 0, 0);
-              let diff = targetDay - resetDate.getDay();
-              if (diff < 0 || (diff === 0 && now >= resetDate)) diff += 7;
-              resetDate.setDate(resetDate.getDate() + diff);
-              const windowStart = new Date(resetDate.getTime() - 7 * 24 * 3600000);
-              const elapsed = (now - windowStart) / (7 * 24 * 3600000);
+              const windowMs = 7 * 24 * 3600000;
+              let resetDate = null;
+
+              // Relative formats from scrape: "3 h", "5 hr 36 min", "2 days"
+              const rel = resetStr.match(/(?:(\d+)\s*(?:w|week|weeks))?\s*(?:(\d+)\s*(?:d|day|days))?\s*(?:(\d+)\s*(?:h|hr|hrs|hour|hours))?\s*(?:(\d+)\s*(?:m|min|mins|minute|minutes))?/i);
+              if (rel && (rel[1] || rel[2] || rel[3] || rel[4])) {
+                const weeks = parseInt(rel[1] || 0, 10);
+                const days = parseInt(rel[2] || 0, 10);
+                const hours = parseInt(rel[3] || 0, 10);
+                const mins = parseInt(rel[4] || 0, 10);
+                const msUntilReset = (((weeks * 7 + days) * 24 + hours) * 60 + mins) * 60000;
+                resetDate = new Date(now.getTime() + msUntilReset);
+              }
+
+              // Old weekday format: "Fri 11:00 AM"
+              if (!resetDate) {
+                const days = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+                const parts = resetStr.match(/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+(\d+):(\d+)\s+(AM|PM)$/i);
+                if (parts) {
+                  const targetDay = days.indexOf(parts[1]);
+                  let h = parseInt(parts[2], 10);
+                  const m = parseInt(parts[3], 10);
+                  const ampm = parts[4].toUpperCase();
+                  if (ampm === "PM" && h < 12) h += 12;
+                  if (ampm === "AM" && h === 12) h = 0;
+                  resetDate = new Date(now);
+                  resetDate.setHours(h, m, 0, 0);
+                  let diff = targetDay - resetDate.getDay();
+                  if (diff < 0 || (diff === 0 && now >= resetDate)) diff += 7;
+                  resetDate.setDate(resetDate.getDate() + diff);
+                }
+              }
+
+              if (!resetDate || Number.isNaN(resetDate.getTime())) {
+                pct.textContent = "?";
+                bar.style.width = "0%";
+                if (end) end.textContent = resetStr;
+                return;
+              }
+
+              const msUntilReset = Math.max(0, resetDate.getTime() - now.getTime());
+              const elapsed = (windowMs - msUntilReset) / windowMs;
               const elapsedPct = Math.round(Math.max(0, Math.min(100, elapsed * 100)));
               bar.style.width = elapsedPct + "%";
               pct.textContent = elapsedPct + "%";
-              if (end) end.textContent = resetDate.toLocaleDateString("en-US", {weekday:"short", month:"short", day:"numeric", hour:"numeric", minute:"2-digit"});
-            } catch(e) { pct.textContent = "?"; }
+              if (end) end.textContent = resetDate.toLocaleString("en-US", { weekday:"short", month:"short", day:"numeric", hour:"numeric", minute:"2-digit" });
+            } catch(e) {
+              pct.textContent = "?";
+              bar.style.width = "0%";
+            }
           })();
 
           // Sonnet Weekly - Show USED as primary
@@ -3050,35 +3085,49 @@
             codexDayBar.className = `quota-bar-fill ${codexDayUsed < 50 ? "low" : codexDayUsed < 80 ? "medium" : "high"}`;
           }
 
-          // Codex week-elapsed bar — calculated from exact reset timestamp
+          // Codex week-elapsed bar — supports both relative resets ("5d") and absolute timestamps ("Apr 2, 2026 9:00 PM")
           (function() {
-            const resetRaw = data.codex?.resetDay; // e.g. "5d" or could be ISO if scraped
+            const resetRaw = data.codex?.resetDay;
             const bar = document.getElementById("codex-week-elapsed-bar");
             const pctEl = document.getElementById("codex-week-elapsed-pct");
             const endEl = document.getElementById("codex-week-elapsed-end");
             if (!bar || !pctEl) return;
-            // resetDay is currently a relative string like "4d" or "2h"
-            // Convert to ms from now
-            if (!resetRaw || resetRaw === "?" || resetRaw === "-") { pctEl.textContent = "-%"; bar.style.width = "0%"; return; }
+            if (!resetRaw || resetRaw === "?" || resetRaw === "-") {
+              pctEl.textContent = "-%";
+              bar.style.width = "0%";
+              if (endEl) endEl.textContent = "-";
+              return;
+            }
             try {
-              let msUntilReset = 0;
-              const dMatch = resetRaw.match(/^(\d+)d$/);
-              const hMatch = resetRaw.match(/^(\d+)h$/);
-              const mMatch = resetRaw.match(/^(\d+)m$/);
-              if (dMatch) msUntilReset = parseInt(dMatch[1]) * 86400000;
-              else if (hMatch) msUntilReset = parseInt(hMatch[1]) * 3600000;
-              else if (mMatch) msUntilReset = parseInt(mMatch[1]) * 60000;
-              else { pctEl.textContent = "?"; return; }
+              let resetDate = null;
+              const dMatch = resetRaw.match(/^(\d+)d$/i);
+              const hMatch = resetRaw.match(/^(\d+)h$/i);
+              const mMatch = resetRaw.match(/^(\d+)m$/i);
+              if (dMatch) resetDate = new Date(Date.now() + parseInt(dMatch[1], 10) * 86400000);
+              else if (hMatch) resetDate = new Date(Date.now() + parseInt(hMatch[1], 10) * 3600000);
+              else if (mMatch) resetDate = new Date(Date.now() + parseInt(mMatch[1], 10) * 60000);
+              else {
+                const parsed = new Date(resetRaw);
+                if (!Number.isNaN(parsed.getTime())) resetDate = parsed;
+              }
+              if (!resetDate) {
+                pctEl.textContent = "?";
+                bar.style.width = "0%";
+                return;
+              }
               const windowMs = 7 * 24 * 3600000;
+              const msUntilReset = Math.max(0, resetDate.getTime() - Date.now());
               const elapsed = (windowMs - msUntilReset) / windowMs;
               const elapsedPct = Math.round(Math.max(0, Math.min(100, elapsed * 100)));
               bar.style.width = elapsedPct + "%";
               pctEl.textContent = elapsedPct + "%";
               if (endEl) {
-                const resetDate = new Date(Date.now() + msUntilReset);
-                endEl.textContent = resetDate.toLocaleDateString("en-US", {weekday:"short", month:"short", day:"numeric", hour:"numeric", minute:"2-digit"});
+                endEl.textContent = resetDate.toLocaleString("en-US", { weekday:"short", month:"short", day:"numeric", hour:"numeric", minute:"2-digit" });
               }
-            } catch(e) { pctEl.textContent = "?"; }
+            } catch(e) {
+              pctEl.textContent = "?";
+              bar.style.width = "0%";
+            }
           })();
 
           // Task Routing
