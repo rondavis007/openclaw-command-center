@@ -1,256 +1,407 @@
 #!/usr/bin/env node
 /**
- * Created/maintained by Clawbaby.
- * Purpose: Refresh the Discord channel name cache used by Command Center for session labels.
- *          Fetches guild channels + resolves known active thread/forum-post IDs.
- *          Command Center reads this cache at startup — no live Discord API calls needed.
- * Added: 2026-03-22.
+ * Script provenance
+ * Created/maintained by: Clawbaby (OpenClaw main agent)
+ * Why: Refresh Discord channel cache used by Command Center + session label cleanup.
+ * Added/updated: 2026-04-04
  *
- * Usage: node scripts/refresh-discord-channels.js [--guild-id ID] [--config PATH]
+ * This version avoids stale old CLI assumptions and uses the current OpenClaw CLI.
  */
 
-const fs = require("fs");
-const path = require("path");
-const { execFileSync } = require("child_process");
-const os = require("os");
+const fs = require('fs');
+const https = require('https');
+const os = require('os');
+const path = require('path');
 
-const HOME = os.homedir();
-const DEFAULT_CACHE_PATH = path.join(HOME, ".openclaw", "state", "discord-channel-cache.json");
-const DEFAULT_FAILED_IDS_PATH = DEFAULT_CACHE_PATH.replace(".json", ".failed-ids.json");
-const TIMEOUT_MS = 20000;
+const STATE_DIR = path.join(os.homedir(), '.openclaw');
+const CACHE_PATH = path.join(STATE_DIR, 'state', 'discord-channel-cache.json');
+const FAILED_IDS_PATH = path.join(STATE_DIR, 'state', 'discord-channel-cache.failed-ids.json');
+const CONFIG_PATH = path.join(STATE_DIR, 'openclaw.json');
+const ENV_PATH = path.join(STATE_DIR, '.env');
 
-function parseArgs(argv) {
-  const args = { configPath: null, cacheOutput: DEFAULT_CACHE_PATH };
-  for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === "--config") args.configPath = argv[++i];
-    if (argv[i] === "--cache-output") args.cacheOutput = argv[++i];
+let cachedDotEnv = null;
+
+function readJson(file) {
+  return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+
+function writeJson(file, data) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(data, null, 2));
+}
+
+function deleteFileIfExists(file) {
+  if (fs.existsSync(file)) {
+    fs.unlinkSync(file);
   }
-  return args;
 }
 
-function readJson(p) {
-  try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch { return null; }
+function parseDotEnvValue(raw) {
+  const value = String(raw || '').trim();
+  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+    return value.slice(1, -1);
+  }
+  return value;
 }
 
-function writeJson(p, data) {
-  fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.writeFileSync(p, JSON.stringify(data, null, 2) + "\n", "utf8");
+function loadDotEnvMap() {
+  if (cachedDotEnv) return cachedDotEnv;
+  const map = new Map();
+  if (!fs.existsSync(ENV_PATH)) {
+    cachedDotEnv = map;
+    return map;
+  }
+  const lines = fs.readFileSync(ENV_PATH, 'utf8').split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eqIndex = trimmed.indexOf('=');
+    if (eqIndex <= 0) continue;
+    const key = trimmed.slice(0, eqIndex).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+    const value = parseDotEnvValue(trimmed.slice(eqIndex + 1));
+    map.set(key, value);
+  }
+  cachedDotEnv = map;
+  return map;
 }
 
-function runOcl(args) {
-  return execFileSync("openclaw", args, {
-    encoding: "utf8",
-    timeout: TIMEOUT_MS,
-    stdio: ["pipe", "pipe", "ignore"],
-  }).trim();
+function getEnvValue(name) {
+  const direct = process.env[name];
+  if (typeof direct === 'string' && direct.trim()) return direct.trim();
+  const dotEnv = loadDotEnvMap();
+  const fallback = dotEnv.get(name);
+  if (typeof fallback === 'string' && fallback.trim()) return fallback.trim();
+  return null;
 }
 
-function formatLabel(name = "", type = 0, id = "") {
-  if (!name) return `#${id.slice(-8)}`;
-  const needsHash = [0, 5, 15].includes(Number(type));
-  return needsHash ? (name.startsWith("#") ? name : `#${name}`) : name;
-}
+function resolveToken(rawValue) {
+  if (typeof rawValue === 'string' && rawValue.trim()) {
+    const value = rawValue.trim();
+    const bracedEnvMatch = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/.exec(value);
+    if (bracedEnvMatch) {
+      const envName = bracedEnvMatch[1];
+      const envValue = getEnvValue(envName);
+      if (envValue) return envValue;
+      throw new Error(`Missing env var for Discord token placeholder: ${envName}`);
+    }
 
-function loadOpenClawConfig(configPath) {
-  const dirs = configPath
-    ? [configPath]
-    : [
-        path.join(HOME, ".openclaw", "openclaw.json"),
-        path.join(HOME, ".openclaw", "config.json"),
-      ];
-  for (const p of dirs) {
-    try {
-      if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, "utf8"));
-    } catch {}
+    const bareEnvMatch = /^\$([A-Za-z_][A-Za-z0-9_]*)$/.exec(value);
+    if (bareEnvMatch) {
+      const envName = bareEnvMatch[1];
+      const envValue = getEnvValue(envName);
+      if (envValue) return envValue;
+      throw new Error(`Missing env var for Discord token placeholder: ${envName}`);
+    }
+
+    return value;
+  }
+  if (rawValue && typeof rawValue === 'object' && rawValue.source === 'env' && typeof rawValue.id === 'string') {
+    const value = getEnvValue(rawValue.id);
+    if (value) return value;
+    throw new Error(`Missing env var for Discord token ref: ${rawValue.id}`);
   }
   return null;
 }
 
-function getGuildIds(config) {
-  const accounts = config?.channels?.discord?.accounts || {};
-  const ids = new Set([
-    ...Object.keys(config?.channels?.discord?.guilds || {}),
-    ...Object.values(accounts).flatMap((a) => Object.keys(a?.guilds || {})),
-  ]);
-  return [...ids];
-}
-
-function fetchGuildChannels(guildId) {
-  try {
-    const out = runOcl([
-      "message", "channel", "list",
-      "--channel", "discord",
-      "--guild-id", guildId,
-      "--json",
-    ]);
-    const start = out.indexOf("{");
-    const parsed = JSON.parse(start >= 0 ? out.slice(start) : out);
-    return parsed?.payload?.channels || [];
-  } catch (e) {
-    console.error(`[refresh-discord] guild ${guildId} fetch failed: ${e.message}`);
-    return [];
+function normalizeChannelEntries(items, guildId) {
+  const out = {};
+  for (const item of items) {
+    const id = String(item.id || item.channelId || '').trim();
+    if (!id) continue;
+    const name = item.name || item.channelName || item.label || item.topic || id;
+    const parentId = item.parentId || item.parent_id || null;
+    const type = item.type ?? item.channelType ?? null;
+    out[id] = {
+      guildId,
+      channelLabel: String(name).startsWith('#') ? String(name) : `#${String(name)}`,
+      parentId: parentId ? String(parentId) : null,
+      type,
+    };
   }
+  return out;
 }
 
-function fetchForumThreads(guildId, forumChannelId, accounts) {
-  // Use openclaw message thread list per forum channel, trying each bot account
-  const threads = new Map();
-  for (const account of accounts) {
-    try {
-      const out = runOcl([
-        "message", "thread", "list",
-        "--channel", "discord",
-        "--guild-id", guildId,
-        "--channel-id", forumChannelId,
-        "--account", account,
-        "--json",
-      ]);
-      const start = out.indexOf("{");
-      const parsed = JSON.parse(start >= 0 ? out.slice(start) : out);
-      const raw = parsed?.payload?.threads;
-      const list = (typeof raw === "object" && !Array.isArray(raw)) ? (raw?.threads || []) : (raw || []);
-      for (const t of Array.isArray(list) ? list : []) {
-        if (!threads.has(t.id)) threads.set(t.id, t);
-      }
-    } catch {
-      // Skip accounts that don't have access
+function buildGuildFetchPlans(cfg) {
+  const discord = cfg?.channels?.discord || {};
+  const topLevelGuildIds = Object.keys(discord.guilds || {});
+  const topLevelToken = resolveToken(discord.token);
+  const plans = new Map();
+
+  function ensurePlan(guildId) {
+    const id = String(guildId || '').trim();
+    if (!id) return null;
+    if (!plans.has(id)) {
+      plans.set(id, { guildId: id, candidates: [] });
     }
-  }
-  return [...threads.values()];
-}
-
-function fetchChannelInfoWithAccounts(channelId, accounts) {
-  for (const account of accounts) {
-    try {
-      const out = runOcl([
-        "message", "channel", "info",
-        "--channel", "discord",
-        "--account", account,
-        "--target", `channel:${channelId}`,
-        "--json",
-      ]);
-      const start = out.indexOf("{");
-      const parsed = JSON.parse(start >= 0 ? out.slice(start) : out);
-      const c = parsed?.payload?.channel;
-      if (c?.name) return c;
-    } catch {}
-  }
-  return null;
-}
-
-function fetchChannelInfo(channelId) {
-  try {
-    const out = runOcl([
-      "message", "channel", "info",
-      "--channel", "discord",
-      "--target", `channel:${channelId}`,
-      "--json",
-    ]);
-    const start = out.indexOf("{");
-    const parsed = JSON.parse(start >= 0 ? out.slice(start) : out);
-    return parsed?.payload?.channel || null;
-  } catch {
-    return null;
-  }
-}
-
-function getAccountNames(config) {
-  return Object.keys(config?.channels?.discord?.accounts || {});
-}
-
-async function main() {
-  const args = parseArgs(process.argv.slice(2));
-  const config = loadOpenClawConfig(args.configPath);
-  if (!config) {
-    console.error("[refresh-discord] Could not load OpenClaw config");
-    process.exit(1);
+    return plans.get(id);
   }
 
-  const guildIds = getGuildIds(config);
-  if (!guildIds.length) {
-    console.error("[refresh-discord] No guild IDs found in config");
-    process.exit(1);
+  for (const guildId of topLevelGuildIds) {
+    ensurePlan(guildId);
   }
 
-  const accounts = getAccountNames(config);
-
-  // Load existing cache (to preserve thread entries and failed IDs)
-  const existing = readJson(args.cacheOutput) || { fetchedAt: 0, channels: {} };
-  const failedIds = new Set(readJson(DEFAULT_FAILED_IDS_PATH) || []);
-  const channels = { ...(existing.channels || {}) };
-
-  // 1. Fetch all guild channels (one call per guild — very cheap)
-  let guildChannelCount = 0;
-  const forumChannelIds = [];
-  for (const guildId of guildIds) {
-    const list = fetchGuildChannels(guildId);
-    for (const c of list) {
-      channels[c.id] = {
-        guildId,
-        channelLabel: formatLabel(c.name, c.type, c.id),
-        parentId: c.parent_id || null,
-        type: c.type,
-        updatedAt: Date.now(),
-      };
-      guildChannelCount++;
-      // Collect forum channels (type 15) to fetch their threads
-      if (Number(c.type) === 15) forumChannelIds.push({ id: c.id, guildId });
-    }
-  }
-  console.log(`[refresh-discord] Guild channels fetched: ${guildChannelCount}, forums: ${forumChannelIds.length}`);
-
-  // 2. Fetch active threads inside each forum channel, trying all bot accounts
-  let threadCount = 0;
-  for (const { id: forumId, guildId } of forumChannelIds) {
-    const threads = fetchForumThreads(guildId, forumId, accounts);
-    for (const t of threads) {
-      const label = formatLabel(t.name, t.type, t.id);
-      if (!channels[t.id] || channels[t.id].channelLabel !== label) {
-        channels[t.id] = {
-          guildId,
-          channelLabel: label,
-          parentId: t.parent_id || forumId,
-          type: t.type,
-          updatedAt: Date.now(),
-        };
-        threadCount++;
+  if (topLevelToken) {
+    for (const guildId of topLevelGuildIds) {
+      const plan = ensurePlan(guildId);
+      if (plan) {
+        plan.candidates.push({ accountId: 'top-level', token: topLevelToken });
       }
     }
   }
-  console.log(`[refresh-discord] Forum threads discovered/updated: ${threadCount}`);
 
-  // 3. Refresh names for known thread IDs in cache (in case they were renamed)
-  const knownThreadIds = Object.entries(channels)
-    .filter(([, v]) => v.type && [11, 12].includes(Number(v.type)))
-    .map(([id]) => id);
-
-  let refreshed = 0;
-  for (const id of knownThreadIds) {
-    if (failedIds.has(id)) continue;
-    const c = fetchChannelInfoWithAccounts(id, accounts);
-    if (c?.name) {
-      channels[id] = {
-        ...channels[id],
-        channelLabel: formatLabel(c.name, c.type, id),
-        parentId: c.parent_id || channels[id]?.parentId || null,
-        updatedAt: Date.now(),
-      };
-      refreshed++;
-    } else if (c === null) {
-      failedIds.add(id);
+  const accounts = discord.accounts || {};
+  for (const [accountId, accountCfg] of Object.entries(accounts)) {
+    if (accountCfg?.enabled === false) continue;
+    const token = resolveToken(accountCfg?.token);
+    if (!token) continue;
+    const accountGuildIds = Object.keys(accountCfg?.guilds || {});
+    for (const guildId of accountGuildIds) {
+      const plan = ensurePlan(guildId);
+      if (!plan) continue;
+      plan.candidates.push({ accountId, token });
     }
   }
-  console.log(`[refresh-discord] Thread names refreshed: ${refreshed}`);
 
-  // 3. Write updated cache
-  const cache = { fetchedAt: Date.now(), channels };
-  writeJson(args.cacheOutput, cache);
-  writeJson(DEFAULT_FAILED_IDS_PATH, [...failedIds]);
+  for (const plan of plans.values()) {
+    const seen = new Set();
+    plan.candidates = plan.candidates.filter((candidate) => {
+      const key = `${candidate.accountId}:${candidate.token}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
 
-  console.log(`[refresh-discord] Cache written: ${Object.keys(channels).length} total entries → ${args.cacheOutput}`);
+  return Array.from(plans.values()).filter((plan) => plan.candidates.length > 0);
 }
 
-main().catch((e) => {
-  console.error("[refresh-discord]", e.message);
-  process.exit(1);
-});
+function fetchDiscordJson(urlPath, botToken) {
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        method: 'GET',
+        host: 'discord.com',
+        path: `/api/v10${urlPath}`,
+        headers: {
+          Authorization: `Bot ${botToken}`,
+          'User-Agent': 'openclaw-discord-channel-cache/1.0',
+        },
+      },
+      (res) => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          body += chunk;
+        });
+        res.on('end', () => {
+          let parsed = null;
+          try {
+            parsed = body ? JSON.parse(body) : null;
+          } catch {
+            parsed = body;
+          }
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            resolve(parsed);
+            return;
+          }
+          const reason = typeof parsed === 'object' && parsed?.message
+            ? parsed.message
+            : typeof parsed === 'string'
+              ? parsed.slice(0, 240)
+              : `HTTP ${res.statusCode}`;
+          reject(new Error(`Discord API ${res.statusCode} for ${urlPath}: ${reason}`));
+        });
+      },
+    );
+
+    req.on('error', (err) => reject(err));
+    req.end();
+  });
+}
+
+async function listGuildChannels(guildId, token) {
+  const payload = await fetchDiscordJson(`/guilds/${guildId}/channels`, token);
+  if (!Array.isArray(payload)) {
+    throw new Error(`Unexpected guild channel payload shape for guild ${guildId}`);
+  }
+  return payload;
+}
+
+async function getChannelInfo(channelId, token) {
+  const payload = await fetchDiscordJson(`/channels/${channelId}`, token);
+  if (!payload || typeof payload !== 'object') {
+    throw new Error(`Unexpected channel-info payload shape for channel ${channelId}`);
+  }
+  return payload;
+}
+
+function summarizeError(err) {
+  return String(err?.message || err || 'unknown error');
+}
+
+async function fetchGuildViaCandidates(plan) {
+  const attempts = [];
+  for (const candidate of plan.candidates) {
+    try {
+      const items = await listGuildChannels(plan.guildId, candidate.token);
+      return {
+        ok: true,
+        guildId: plan.guildId,
+        accountId: candidate.accountId,
+        items,
+        attempts,
+      };
+    } catch (err) {
+      attempts.push({ accountId: candidate.accountId, error: summarizeError(err) });
+    }
+  }
+  return {
+    ok: false,
+    guildId: plan.guildId,
+    attempts,
+  };
+}
+
+async function refreshFailedGuildChannelsFromKnownIds(previousChannels, failedGuildIds, guildPlans) {
+  const refreshed = {};
+  const staleFallbackIds = [];
+  const attempts = [];
+
+  for (const [channelId, previousInfo] of Object.entries(previousChannels || {})) {
+    const guildId = String(previousInfo?.guildId || '');
+    if (!failedGuildIds.has(guildId)) continue;
+
+    const plan = guildPlans.get(guildId);
+    const candidates = plan?.candidates || [];
+    let liveEntry = null;
+    let lastError = null;
+    for (const candidate of candidates) {
+      try {
+        const info = await getChannelInfo(channelId, candidate.token);
+        const normalized = normalizeChannelEntries([info], guildId);
+        if (normalized[channelId]) {
+          liveEntry = normalized[channelId];
+          break;
+        }
+        throw new Error('channel-info returned no usable channel object');
+      } catch (err) {
+        lastError = summarizeError(err);
+      }
+    }
+
+    if (liveEntry) {
+      refreshed[channelId] = liveEntry;
+      continue;
+    }
+
+    refreshed[channelId] = previousInfo;
+    staleFallbackIds.push(channelId);
+    attempts.push({
+      channelId,
+      guildId,
+      error: lastError || 'No valid token candidates for failed guild',
+    });
+  }
+
+  return { refreshed, staleFallbackIds, attempts };
+}
+
+function main() {
+  return (async () => {
+    const cfg = readJson(CONFIG_PATH);
+    const plans = buildGuildFetchPlans(cfg);
+    if (!plans.length) {
+      throw new Error('No Discord guild/token fetch plans could be resolved from config.');
+    }
+
+    const previous = fs.existsSync(CACHE_PATH) ? readJson(CACHE_PATH) : {};
+    const previousChannels = previous.channels || {};
+    const freshChannels = {};
+    const failures = [];
+    const guildPlansById = new Map(plans.map((plan) => [plan.guildId, plan]));
+    let successGuildCount = 0;
+
+    for (const plan of plans) {
+      const result = await fetchGuildViaCandidates(plan);
+      if (result.ok) {
+        const normalized = normalizeChannelEntries(result.items, plan.guildId);
+        Object.assign(freshChannels, normalized);
+        successGuildCount += 1;
+        console.log(
+          `[ok] guild ${plan.guildId}: fetched ${Object.keys(normalized).length} channels (account: ${result.accountId})`,
+        );
+      } else {
+        failures.push({
+          guildId: plan.guildId,
+          error: result.attempts.map((a) => `${a.accountId}: ${a.error}`).join(' | ') || 'Unknown fetch error',
+          attempts: result.attempts,
+        });
+        console.log(`[fail] guild ${plan.guildId}: ${failures[failures.length - 1].error}`);
+      }
+    }
+
+    if (successGuildCount === 0) {
+      console.error('Preflight failed: no guild channel list succeeded. Cache was NOT updated.');
+      process.exitCode = 2;
+      return;
+    }
+
+    const failedGuildIds = new Set(failures.map((f) => f.guildId));
+    const {
+      refreshed: fallbackChannels,
+      staleFallbackIds,
+      attempts: fallbackAttempts,
+    } = await refreshFailedGuildChannelsFromKnownIds(previousChannels, failedGuildIds, guildPlansById);
+
+    const channels = {
+      ...freshChannels,
+      ...fallbackChannels,
+    };
+
+    const partial = failures.length > 0;
+    const stale = partial;
+
+    const cache = {
+      fetchedAt: Date.now(),
+      status: partial ? 'partial' : 'ok',
+      partial,
+      stale,
+      summary: {
+        guildsConfigured: plans.length,
+        guildsSucceeded: successGuildCount,
+        guildsFailed: failures.length,
+        channelsFresh: Object.keys(freshChannels).length,
+        channelsFallback: Object.keys(fallbackChannels).length,
+        staleFallbackIds: staleFallbackIds.length,
+      },
+      failures,
+      fallback: {
+        mode: partial ? 'channel-info-then-stale-cache' : 'none',
+        attempts: fallbackAttempts,
+      },
+      channels,
+    };
+
+    writeJson(CACHE_PATH, cache);
+    if (staleFallbackIds.length) {
+      writeJson(FAILED_IDS_PATH, staleFallbackIds.sort());
+    } else {
+      deleteFileIfExists(FAILED_IDS_PATH);
+    }
+
+    console.log('---');
+    console.log(`Wrote ${Object.keys(channels).length} cached Discord channel entries to ${CACHE_PATH}`);
+    if (partial) {
+      console.log(`Partial refresh: ${failures.length} guild(s) failed, cache marked stale.`);
+      process.exitCode = 1;
+    } else {
+      console.log('Refresh status: healthy');
+    }
+  })().catch((err) => {
+    console.error(`[fatal] ${summarizeError(err)}`);
+    process.exitCode = 2;
+  });
+}
+
+main();
